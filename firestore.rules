@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
+        && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == "admin";
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isSignedIn()
+        && ((request.auth.uid == userId && request.resource.data.role == "worker") || isAdmin());
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (
+          request.auth.uid == userId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.isActive == resource.data.isActive
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /roles/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isSignedIn()
+        && ((request.auth.uid == userId && request.resource.data.role == "worker") || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    match /machines/{machineId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /logs/{logId} {
+      allow read: if isSignedIn()
+        && (resource.data.workerId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && (request.resource.data.workerId == request.auth.uid || isAdmin());
+      allow update, delete: if isSignedIn()
+        && (resource.data.workerId == request.auth.uid || isAdmin());
+    }
+  }
+}
