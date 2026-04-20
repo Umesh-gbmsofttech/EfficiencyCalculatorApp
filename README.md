@@ -17,16 +17,28 @@ npm run android
 npm run lint
 
 # Expo health checks
-npx expo-doctor
+npm run doctor
 
 # generate native Android project
-npx expo prebuild --platform android
+npm run prebuild:android
+
+# force regenerate native android/ios folders
+npm run prebuild:clean
+
+# stop existing Gradle daemons (recommended before release)
+npm run android:stop
+
+# clean generated/build folders
+npm run clean
+
+# reset full build state (clean + install + prebuild clean)
+npm run reset
 
 # build release APK (from project root)
-npm run android:release
+npm run build:android
 
-# build release APK (from android folder)
-cd android && .\gradlew.bat assembleRelease
+# build release APK (from android folder / Git Bash)
+cd android && ./gradlew.bat assembleRelease
 ```
 
 ## Project Details
@@ -56,7 +68,15 @@ FIREBASE_PROJECT_ID=
 FIREBASE_STORAGE_BUCKET=
 FIREBASE_MESSAGING_SENDER_ID=
 FIREBASE_APP_ID=
+
+EXPO_PUBLIC_FIREBASE_API_KEY=
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+EXPO_PUBLIC_FIREBASE_APP_ID=
 ```
+You can use either `FIREBASE_*` or `EXPO_PUBLIC_FIREBASE_*` keys.
 
 ### Firestore Collections
 - `users`
@@ -77,8 +97,17 @@ Keystore currently generated at:
 - `C:\Users\ratho\Downloads\WORK\keystore.jks`
 
 Release signing is configured to use:
-- Alias: `upload`
-- Passwords: `workerEfficiency@#123`
+- Env vars: `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
+
+### Windows Build Stability Notes
+- Do not run Metro (`npm run start`) while running release build.
+- Stop Gradle daemons before release build: `npm run android:stop`.
+- If CMake file lock errors appear, rerun after:
+  1. `npm run android:stop`
+  2. `npm run clean`
+  3. `npm install`
+  4. `npm run prebuild:clean`
+- Exclude your project folder from antivirus real-time scanning if file locks continue.
 
 ### GitHub Actions
 Workflow path:

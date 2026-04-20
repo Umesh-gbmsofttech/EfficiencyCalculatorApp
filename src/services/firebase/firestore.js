@@ -14,7 +14,8 @@ import {
   updateDoc,
   where,
   writeBatch,
-  Timestamp
+  Timestamp,
+  setDoc
 } from "firebase/firestore";
 import { db } from "./config";
 import { COLLECTIONS } from "../../constants/collections";
@@ -94,6 +95,10 @@ export const createMachine = async (data) => {
   });
 };
 
+export const addMachine = async (data) => {
+  await createMachine(data);
+};
+
 export const editMachine = async (id, data) => {
   await updateDoc(doc(db, COLLECTIONS.MACHINES, id), {
     ...data,
@@ -124,6 +129,21 @@ export const createEfficiencyLog = async ({ machine, worker, workingHours, outpu
   });
 
   return { expectedOutput, efficiency };
+};
+
+export const logEfficiency = async (payload) => createEfficiencyLog(payload);
+
+export const createUserProfile = async (uid, profileData = {}) => {
+  await setDoc(
+    doc(db, COLLECTIONS.USERS, uid),
+    {
+      uid,
+      ...profileData,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
 };
 
 export const getDashboardStats = async (uid) => {

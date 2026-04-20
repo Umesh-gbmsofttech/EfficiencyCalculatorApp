@@ -19,6 +19,11 @@ export const loginUser = async ({ email, password }) => {
   return result.user;
 };
 
+export const login = async (email, password) => {
+  const result = await signInWithEmailAndPassword(auth, email.trim(), password);
+  return result.user;
+};
+
 export const signupUser = async ({ fullName, email, password, phoneNumber }) => {
   const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
   await updateProfile(result.user, { displayName: fullName });
@@ -44,6 +49,11 @@ export const signupUser = async ({ fullName, email, password, phoneNumber }) => 
     updatedAt: serverTimestamp()
   });
   await batch.commit();
+  return result.user;
+};
+
+export const signup = async (email, password) => {
+  const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
   return result.user;
 };
 
@@ -84,5 +94,9 @@ export const forgotPassword = async (email) => {
 };
 
 export const logoutUser = async () => {
+  await signOut(auth);
+};
+
+export const logout = async () => {
   await signOut(auth);
 };

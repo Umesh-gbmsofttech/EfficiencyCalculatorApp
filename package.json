@@ -4,13 +4,19 @@
   "private": true,
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
+    "start": "cross-env NODE_ENV=development expo start",
+    "android": "cross-env NODE_ENV=development expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "doctor": "npx expo-doctor",
     "prebuild:android": "expo prebuild --platform android",
-    "android:release": "cd android && gradlew assembleRelease"
+    "prebuild:clean": "expo prebuild --clean",
+    "android:stop": "cd android && gradlew.bat --stop",
+    "build:android": "cross-env NODE_ENV=production cd android && ./gradlew.bat --stop && ./gradlew.bat assembleRelease",
+    "android:release": "npm run build:android",
+    "clean": "rimraf node_modules android/.gradle android/build android/app/build android/.cxx",
+    "reset": "npm run clean && npm install && npx expo prebuild --clean"
   },
   "dependencies": {
     "@expo/vector-icons": "~14.0.4",
@@ -20,8 +26,8 @@
     "@react-navigation/bottom-tabs": "^6.6.1",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.11.0",
+    "buffer": "^6.0.3",
     "dayjs": "^1.11.13",
-    "dotenv": "^16.4.5",
     "expo": "~52.0.28",
     "expo-asset": "~11.0.5",
     "expo-constants": "~17.0.3",
@@ -45,15 +51,16 @@
   "devDependencies": {
     "@babel/core": "^7.26.0",
     "babel-preset-expo": "^12.0.4",
+    "cross-env": "^7.0.3",
     "eslint": "^8.57.0",
-    "eslint-config-expo": "~8.0.1"
+    "eslint-config-expo": "~8.0.1",
+    "rimraf": "^6.0.1"
   },
   "expo": {
     "doctor": {
       "reactNativeDirectoryCheck": {
         "exclude": [
           "react-native-chart-kit",
-          "dotenv",
           "firebase"
         ],
         "listUnknownPackages": false
