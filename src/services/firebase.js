@@ -60,7 +60,11 @@ if (Platform.OS === "web") {
       // eslint-disable-next-line import/namespace
       persistence: FirebaseAuth.getReactNativePersistence(AsyncStorage)
     });
-  } catch {
+  } catch (error) {
+    const alreadyInitialized =
+      error?.code === "auth/already-initialized" ||
+      String(error?.message || "").toLowerCase().includes("already-initialized");
+    if (!alreadyInitialized) throw error;
     auth = FirebaseAuth.getAuth(app);
   }
 }

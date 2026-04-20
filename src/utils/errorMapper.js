@@ -5,6 +5,7 @@ const firebaseErrorMap = {
   "auth/weak-password": "Password is too weak.",
   "auth/user-not-found": "No account found for this email.",
   "auth/wrong-password": "Incorrect password.",
+  "auth/user-disabled": "This account is disabled.",
   "auth/network-request-failed": "Network unavailable. Please try again.",
   "auth/operation-not-allowed": "Something went wrong. Please try again.",
   "auth/operation-not-supported-in-this-environment": "Something went wrong. Please try again.",

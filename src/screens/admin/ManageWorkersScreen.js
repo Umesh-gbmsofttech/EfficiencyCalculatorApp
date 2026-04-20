@@ -10,18 +10,22 @@ import GlassCard from "../../components/GlassCard";
 import ScreenContainer from "../../components/ScreenContainer";
 import { adminCreateWorkerSchema, workerSchema } from "../../utils/validationSchemas";
 import useUIStore from "../../store/uiStore";
+import useAuthStore from "../../store/authStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
 import { deleteWorker, getWorkers, updateWorker } from "../../services/firebase/firestore";
-import { adminCreateWorker } from "../../services/firebase/auth";
+import { addWorker } from "../../services/firebase/auth";
 
 const ManageWorkersScreen = () => {
+  const { user, profile } = useAuthStore();
+  const role = profile?.role || null;
+  const isAdmin = role === "admin";
   const [workers, setWorkers] = useState([]);
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
   const [createVisible, setCreateVisible] = useState(false);
   const [roleMenu, setRoleMenu] = useState(false);
-  const [createRoleMenu, setCreateRoleMenu] = useState(false);
   const [editing, setEditing] = useState(null);
   const { showSnackbar } = useUIStore();
   const theme = useTheme();
@@ -41,23 +45,29 @@ const ManageWorkersScreen = () => {
   const {
     control: createControl,
     reset: resetCreate,
-    handleSubmit: handleCreateSubmit,
-    setValue: setCreateValue,
-    watch: watchCreate
+    handleSubmit: handleCreateSubmit
   } = useForm({
     resolver: yupResolver(adminCreateWorkerSchema),
     defaultValues: { fullName: "", email: "", phoneNumber: "", password: "", role: "worker" }
   });
-  const selectedCreateRole = watchCreate("role");
 
   const loadWorkers = useCallback(async () => {
+    if (!role || !user?.uid) {
+      setWorkers([]);
+      setLoading(false);
+      return;
+    }
     try {
-      const response = await getWorkers();
+      setLoading(true);
+      console.log("[Workers] role:", role);
+      const response = await getWorkers({ role, uid: user.uid });
       setWorkers(response);
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
+    } finally {
+      setLoading(false);
     }
-  }, [showSnackbar]);
+  }, [role, showSnackbar, user?.uid]);
 
   useEffect(() => {
     loadWorkers();
@@ -87,8 +97,15 @@ const ManageWorkersScreen = () => {
 
   const onCreate = async (values) => {
     try {
-      await adminCreateWorker(values);
-      showSnackbar("Worker account created", "success");
+      if (!isAdmin) {
+        showSnackbar("Access restricted.", "warning");
+        return;
+      }
+      const response = await addWorker(values);
+      showSnackbar(
+        response?.recovered ? "User already exists. Recovered account." : "Worker account created",
+        "success"
+      );
       setCreateVisible(false);
       resetCreate({ fullName: "", email: "", phoneNumber: "", password: "", role: "worker" });
       await loadWorkers();
@@ -99,13 +116,29 @@ const ManageWorkersScreen = () => {
 
   const onDelete = async (id) => {
     try {
-      await deleteWorker(id);
-      showSnackbar("Worker deactivated", "success");
+      await deleteWorker(id, { actorUid: user?.uid, actorRole: role });
+      showSnackbar("Worker deleted", "success");
       await loadWorkers();
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
     }
   };
+
+  if (!role) {
+    return (
+      <ScreenContainer>
+        <EmptyState text="Loading role..." />
+      </ScreenContainer>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <ScreenContainer>
+        <EmptyState text="Access restricted." />
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer>
@@ -114,7 +147,7 @@ const ManageWorkersScreen = () => {
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
-        ListEmptyComponent={<EmptyState text="No workers found." />}
+        ListEmptyComponent={loading ? <EmptyState text="Loading workers..." /> : <EmptyState text="No workers found." />}
         contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl
@@ -147,9 +180,11 @@ const ManageWorkersScreen = () => {
               >
                 Edit
               </Button>
-              <Button textColor={theme.custom.colors.error} onPress={() => onDelete(item.id)}>
-                Delete
-              </Button>
+              {isAdmin ? (
+                <Button textColor={theme.custom.colors.error} onPress={() => onDelete(item.id)}>
+                  Delete
+                </Button>
+              ) : null}
             </View>
           </GlassCard>
         )}
@@ -207,30 +242,6 @@ const ManageWorkersScreen = () => {
                 keyboardType="phone-pad"
               />
               <FormTextField control={createControl} name="password" label="Password" secureTextEntry />
-              <Menu
-                visible={createRoleMenu}
-                onDismiss={() => setCreateRoleMenu(false)}
-                anchor={
-                  <Button mode="outlined" onPress={() => setCreateRoleMenu(true)} style={styles.roleBtn}>
-                    Role: {selectedCreateRole}
-                  </Button>
-                }
-              >
-                <Menu.Item
-                  title="worker"
-                  onPress={() => {
-                    setCreateValue("role", "worker");
-                    setCreateRoleMenu(false);
-                  }}
-                />
-                <Menu.Item
-                  title="admin"
-                  onPress={() => {
-                    setCreateValue("role", "admin");
-                    setCreateRoleMenu(false);
-                  }}
-                />
-              </Menu>
             </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
@@ -240,7 +251,9 @@ const ManageWorkersScreen = () => {
         </Dialog>
       </Portal>
 
-      <FAB icon="plus" style={[styles.fab, { backgroundColor: theme.colors.primary }]} color="#FFFFFF" onPress={() => setCreateVisible(true)} />
+      {isAdmin ? (
+        <FAB icon="plus" style={[styles.fab, { backgroundColor: theme.colors.primary }]} color="#FFFFFF" onPress={() => setCreateVisible(true)} />
+      ) : null}
     </ScreenContainer>
   );
 };

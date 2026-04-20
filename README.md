@@ -183,14 +183,15 @@ service cloud.firestore {
 
     // USERS
     match /users/{userId} {
-      allow read: if isSignedIn(); // ✅ admin can read all users
-      allow write: if isSignedIn() && request.auth.uid == userId;
+      allow read: if isAdmin(); // ✅ admin sees all workers
+      allow create: if isSignedIn(); // signup
+      allow update, delete: if isAdmin() || request.auth.uid == userId;
     }
 
     // ROLES
     match /roles/{userId} {
-      allow read: if isSignedIn(); // ✅ required for role checking
-      allow write: if false;
+      allow read: if isSignedIn();
+      allow write: if isAdmin(); // ✅ allow admin to promote users
     }
 
     // MACHINES
@@ -201,7 +202,7 @@ service cloud.firestore {
 
     // LOGS
     match /logs/{logId} {
-      allow read: if isSignedIn(); // ✅ workers can read their logs
+      allow read: if isSignedIn();
       allow write: if isSignedIn();
     }
   }

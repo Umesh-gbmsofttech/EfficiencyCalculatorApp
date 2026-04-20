@@ -43,8 +43,21 @@ export const getUserRole = async (uid) => {
   return snap.exists() ? snap.data() : null;
 };
 
-export const getWorkers = async () => {
-  const q = query(collection(db, COLLECTIONS.USERS), orderBy("fullName", "asc"));
+export const getWorkers = async ({ role, uid } = {}) => {
+  const safeRole = role || "admin";
+  console.log("[Workers] role:", safeRole);
+  if (safeRole === "admin") {
+    console.log("[Workers] query path:", "users (all)");
+    const snap = await getDocs(collection(db, COLLECTIONS.USERS));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((worker) => worker.isActive !== false)
+      .sort((a, b) => String(a.fullName || "").localeCompare(String(b.fullName || "")));
+  }
+
+  if (!uid) return [];
+  console.log("[Workers] query path:", `users (self:${uid})`);
+  const q = query(collection(db, COLLECTIONS.USERS), where("uid", "==", uid));
   const snap = await getDocs(q);
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
@@ -73,25 +86,21 @@ export const updateWorker = async (id, data) => {
   await batch.commit();
 };
 
-export const deleteWorker = async (id) => {
+export const deleteWorker = async (id, { actorUid, actorRole } = {}) => {
+  let resolvedRole = actorRole;
+  if (!resolvedRole && actorUid) {
+    const roleDoc = await getUserRole(actorUid);
+    resolvedRole = roleDoc?.role || null;
+  }
+  if (resolvedRole !== "admin") {
+    const error = new Error("Only admins can delete workers.");
+    error.code = "permission-denied";
+    throw error;
+  }
+
   const batch = writeBatch(db);
-  batch.set(
-    doc(db, COLLECTIONS.USERS, id),
-    {
-      isActive: false,
-      role: "worker",
-      updatedAt: serverTimestamp()
-    },
-    { merge: true }
-  );
-  batch.set(
-    doc(db, COLLECTIONS.ROLES, id),
-    {
-      role: "worker",
-      updatedAt: serverTimestamp()
-    },
-    { merge: true }
-  );
+  batch.delete(doc(db, COLLECTIONS.USERS, id));
+  batch.delete(doc(db, COLLECTIONS.ROLES, id));
   await batch.commit();
 };
 
