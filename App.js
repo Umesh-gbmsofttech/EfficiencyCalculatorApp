@@ -1,10 +1,11 @@
 import "react-native-gesture-handler";
-import React from "react";
+import React, { useMemo } from "react";
+import { useColorScheme } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { Provider as PaperProvider } from "react-native-paper";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { appTheme } from "./src/constants/theme";
+import { createAppTheme, createNavigationTheme } from "./src/constants/theme";
 import RootNavigator from "./src/navigation/RootNavigator";
 import AppSnackbar from "./src/components/AppSnackbar";
 import OfflineBanner from "./src/components/OfflineBanner";
@@ -13,13 +14,17 @@ import useUIStore from "./src/store/uiStore";
 
 export default function App() {
   useAuthBootstrap();
-  const { online } = useUIStore();
+  const systemTheme = useColorScheme();
+  const { online, themeMode } = useUIStore();
+  const resolvedTheme = themeMode === "system" ? (systemTheme === "dark" ? "dark" : "light") : themeMode;
+  const appTheme = useMemo(() => createAppTheme(resolvedTheme), [resolvedTheme]);
+  const navigationTheme = useMemo(() => createNavigationTheme(resolvedTheme), [resolvedTheme]);
 
   return (
     <SafeAreaProvider>
       <PaperProvider theme={appTheme}>
-        <NavigationContainer>
-          <StatusBar style="dark" />
+        <NavigationContainer theme={navigationTheme}>
+          <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
           {!online && <OfflineBanner />}
           <RootNavigator />
         </NavigationContainer>

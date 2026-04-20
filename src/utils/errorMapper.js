@@ -6,14 +6,25 @@ const firebaseErrorMap = {
   "auth/user-not-found": "No account found for this email.",
   "auth/wrong-password": "Incorrect password.",
   "auth/network-request-failed": "Network unavailable. Please try again.",
-  "permission-denied": "You do not have permission for this action."
+  "auth/operation-not-allowed": "Something went wrong. Please try again.",
+  "auth/operation-not-supported-in-this-environment": "Something went wrong. Please try again.",
+  "permission-denied": "Access restricted.",
+  unavailable: "Network unavailable. Please try again.",
+  "failed-precondition": "Loading data, please wait..."
 };
 
 export const mapErrorMessage = (error) => {
   if (!error) return "Something went wrong.";
-  if (typeof error === "string") return error;
+  if (typeof error === "string") {
+    return error.toLowerCase().includes("operation not available")
+      ? "Something went wrong. Please try again."
+      : error;
+  }
   if (error?.code && firebaseErrorMap[error.code]) {
     return firebaseErrorMap[error.code];
+  }
+  if (String(error?.message || "").toLowerCase().includes("operation not available")) {
+    return "Something went wrong. Please try again.";
   }
   return error?.message || "Unexpected error occurred.";
 };

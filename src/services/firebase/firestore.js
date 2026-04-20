@@ -3,7 +3,6 @@ import {
   collection,
   deleteDoc,
   doc,
-  getCountFromServer,
   getDoc,
   getDocs,
   limit,
@@ -22,9 +21,25 @@ import { COLLECTIONS } from "../../constants/collections";
 import { calculateEfficiency, calculateExpectedOutput } from "../../utils/calculations";
 import { toDateRange } from "../../utils/formatters";
 
+export const normalizeImageUrl = (url = "") => {
+  const trimmed = String(url).trim();
+  if (!trimmed) return "";
+  if (trimmed.includes("drive.google.com/file/d/")) {
+    const id = trimmed.split("/d/")[1]?.split("/")[0];
+    if (id) return `https://drive.google.com/uc?export=view&id=${id}`;
+  }
+  return trimmed;
+};
+
 export const getUserProfile = async (uid) => {
   const userRef = doc(db, COLLECTIONS.USERS, uid);
   const snap = await getDoc(userRef);
+  return snap.exists() ? snap.data() : null;
+};
+
+export const getUserRole = async (uid) => {
+  const roleRef = doc(db, COLLECTIONS.ROLES, uid);
+  const snap = await getDoc(roleRef);
   return snap.exists() ? snap.data() : null;
 };
 
@@ -89,6 +104,7 @@ export const getMachines = async () => {
 export const createMachine = async (data) => {
   await addDoc(collection(db, COLLECTIONS.MACHINES), {
     ...data,
+    imageUrl: normalizeImageUrl(data.imageUrl),
     expectedOutputPerHour: Number(data.expectedOutputPerHour),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
@@ -102,6 +118,7 @@ export const addMachine = async (data) => {
 export const editMachine = async (id, data) => {
   await updateDoc(doc(db, COLLECTIONS.MACHINES, id), {
     ...data,
+    imageUrl: normalizeImageUrl(data.imageUrl),
     expectedOutputPerHour: Number(data.expectedOutputPerHour),
     updatedAt: serverTimestamp()
   });
@@ -118,6 +135,8 @@ export const createEfficiencyLog = async ({ machine, worker, workingHours, outpu
   await addDoc(collection(db, COLLECTIONS.LOGS), {
     machineId: machine.id,
     machineName: machine.name,
+    machineCode: machine.code || "",
+    machineImageUrl: normalizeImageUrl(machine.imageUrl),
     workerId: worker.uid,
     workerName: worker.fullName,
     workingHours: Number(workingHours),
@@ -125,7 +144,8 @@ export const createEfficiencyLog = async ({ machine, worker, workingHours, outpu
     downtime: Number(downtime),
     expectedOutput,
     efficiency,
-    timestamp: serverTimestamp()
+    timestamp: Timestamp.now(),
+    createdAt: serverTimestamp()
   });
 
   return { expectedOutput, efficiency };
@@ -146,34 +166,115 @@ export const createUserProfile = async (uid, profileData = {}) => {
   );
 };
 
-export const getDashboardStats = async (uid) => {
+export const getDashboardStats = async (params) => {
+  const uid = typeof params === "string" ? params : params?.uid;
+  const isWorkerScope = Boolean(uid);
+
+  if (isWorkerScope) {
+    const [machinesSnap, logsSnap] = await Promise.all([
+      getDocs(query(collection(db, COLLECTIONS.MACHINES))),
+      getDocs(query(collection(db, COLLECTIONS.LOGS), where("workerId", "==", uid)))
+    ]);
+
+    return {
+      workers: 0,
+      machines: machinesSnap.size,
+      logs: logsSnap.size
+    };
+  }
+
   const [workersSnap, machinesSnap, logsSnap] = await Promise.all([
-    getCountFromServer(query(collection(db, COLLECTIONS.USERS))),
-    getCountFromServer(query(collection(db, COLLECTIONS.MACHINES))),
-    getCountFromServer(
-      uid
-        ? query(collection(db, COLLECTIONS.LOGS), where("workerId", "==", uid))
-        : query(collection(db, COLLECTIONS.LOGS))
-    )
+    getDocs(query(collection(db, COLLECTIONS.USERS))),
+    getDocs(query(collection(db, COLLECTIONS.MACHINES))),
+    getDocs(query(collection(db, COLLECTIONS.LOGS)))
   ]);
 
   return {
-    workers: workersSnap.data().count,
-    machines: machinesSnap.data().count,
-    logs: logsSnap.data().count
+    workers: workersSnap.size,
+    machines: machinesSnap.size,
+    logs: logsSnap.size
   };
 };
 
 export const getEfficiencyTrend = async ({ uid, days = 7 }) => {
   const since = new Date();
   since.setDate(since.getDate() - days);
+  const constraints = [orderBy("timestamp", "desc"), limit(Math.max(days * 20, 50))];
+  if (uid) constraints.unshift(where("workerId", "==", uid));
+  const role = uid ? "worker" : "admin";
+  try {
+    const q = query(collection(db, COLLECTIONS.LOGS), ...constraints);
+    const snap = await getDocs(q);
+    const records = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((item) => {
+        const date = item.timestamp?.toDate?.() || null;
+        return date ? date >= since : false;
+      })
+      .reverse();
+    console.info("[Firestore] getEfficiencyTrend", { uid: uid || "all", role, resultCount: records.length });
+    return records;
+  } catch (error) {
+    if (!isIndexOrRetryableError(error)) throw error;
+    const fallbackConstraints = [limit(Math.max(days * 40, 100))];
+    if (uid) fallbackConstraints.unshift(where("workerId", "==", uid));
+    const fallbackQuery = query(collection(db, COLLECTIONS.LOGS), ...fallbackConstraints);
+    const fallbackSnap = await getDocs(fallbackQuery);
+    const records = fallbackSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((item) => {
+        const date = item.timestamp?.toDate?.() || null;
+        return date ? date >= since : false;
+      })
+      .sort((a, b) => {
+        const aDate = a.timestamp?.toDate?.()?.getTime?.() || 0;
+        const bDate = b.timestamp?.toDate?.()?.getTime?.() || 0;
+        return aDate - bDate;
+      });
+    console.info("[Firestore] getEfficiencyTrend fallback", { uid: uid || "all", role, resultCount: records.length });
+    return records;
+  }
+};
 
-  const constraints = [where("timestamp", ">=", Timestamp.fromDate(since)), orderBy("timestamp", "asc")];
-  if (uid) constraints.push(where("workerId", "==", uid));
+const isSameOrAfter = (date, start) => (!start ? true : date >= start);
+const isSameOrBefore = (date, end) => (!end ? true : date <= end);
+const isIndexOrRetryableError = (error) =>
+  error?.code === "failed-precondition" ||
+  error?.code === "unavailable" ||
+  String(error?.message || "").toLowerCase().includes("index");
+
+const applyLogFilters = ({ records, role, uid, filters }) => {
+  const start = toDateRange(filters.dateFrom);
+  const end = toDateRange(filters.dateTo, true);
+  return records.filter((item) => {
+    const ts = item.timestamp?.toDate?.();
+    if (!ts) return false;
+    if (role !== "admin" && item.workerId !== uid) return false;
+    if (filters.workerId && item.workerId !== filters.workerId) return false;
+    if (filters.machineId && item.machineId !== filters.machineId) return false;
+    if (!isSameOrAfter(ts, start) || !isSameOrBefore(ts, end)) return false;
+    return true;
+  });
+};
+
+const getFallbackLogsPage = async ({ role, uid, filters, cursor = null, pageSize = 12 }) => {
+  const constraints = [orderBy("timestamp", "desc"), limit(pageSize * 4)];
+  if (role !== "admin") constraints.unshift(where("workerId", "==", uid));
+  if (cursor) constraints.push(startAfter(cursor));
 
   const q = query(collection(db, COLLECTIONS.LOGS), ...constraints);
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const filtered = applyLogFilters({ records: raw, role, uid, filters }).slice(0, pageSize);
+  const lastId = filtered.length ? filtered[filtered.length - 1].id : null;
+  const lastDoc = lastId ? snap.docs.find((d) => d.id === lastId) || null : null;
+  console.info("[Firestore] getLogsPage fallback", { uid: uid || "all", role, resultCount: filtered.length });
+
+  return {
+    records: filtered,
+    cursor: lastDoc,
+    hasMore: filtered.length === pageSize
+  };
 };
 
 export const getLogsPage = async ({ role, uid, filters = {}, cursor = null, pageSize = 12 }) => {
@@ -193,12 +294,31 @@ export const getLogsPage = async ({ role, uid, filters = {}, cursor = null, page
 
   if (cursor) constraints.push(startAfter(cursor));
 
-  const q = query(collection(db, COLLECTIONS.LOGS), ...constraints);
-  const snap = await getDocs(q);
+  try {
+    const q = query(collection(db, COLLECTIONS.LOGS), ...constraints);
+    const snap = await getDocs(q);
+    const records = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    console.info("[Firestore] getLogsPage", { uid: uid || "all", role, resultCount: records.length });
 
-  return {
-    records: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
-    cursor: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
-    hasMore: snap.docs.length === pageSize
-  };
+    return {
+      records,
+      cursor: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
+      hasMore: snap.docs.length === pageSize
+    };
+  } catch (error) {
+    const canFallback = isIndexOrRetryableError(error);
+    if (!canFallback) throw error;
+    return getFallbackLogsPage({ role, uid, filters, cursor, pageSize });
+  }
+};
+
+export const updateEfficiencyLog = async (id, data) => {
+  await updateDoc(doc(db, COLLECTIONS.LOGS, id), {
+    workingHours: Number(data.workingHours),
+    outputProduced: Number(data.outputProduced),
+    downtime: Number(data.downtime),
+    expectedOutput: Number(data.expectedOutput),
+    efficiency: Number(data.efficiency),
+    updatedAt: serverTimestamp()
+  });
 };

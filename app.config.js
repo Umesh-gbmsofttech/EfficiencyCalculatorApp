@@ -4,6 +4,7 @@ export default ({ config }) => ({
   slug: "efficiency-calculator",
   version: "1.0.0",
   orientation: "portrait",
+  newArchEnabled: true,
   icon: "./assets/logo.png",
   userInterfaceStyle: "automatic",
   splash: {

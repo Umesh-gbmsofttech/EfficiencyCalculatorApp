@@ -26,6 +26,14 @@ export const forgotPasswordSchema = yup.object({
 export const machineSchema = yup.object({
   name: yup.string().required("Machine name is required"),
   code: yup.string().required("Machine code is required"),
+  imageUrl: yup
+    .string()
+    .trim()
+    .required("Machine image URL is required")
+    .test("is-valid-url", "Enter a valid image URL", (value) => {
+      if (!value) return false;
+      return /^https?:\/\/.+/i.test(value);
+    }),
   expectedOutputPerHour: yup
     .number()
     .typeError("Must be a number")

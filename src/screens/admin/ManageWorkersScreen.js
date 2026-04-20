@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, RefreshControl, View } from "react-native";
-import { Button, Card, Dialog, FAB, Menu, Portal, Text, TextInput } from "react-native-paper";
+import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Button, Dialog, FAB, Menu, Portal, useTheme } from "react-native-paper";
 import { useForm } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
 import FormTextField from "../../components/FormTextField";
 import EmptyState from "../../components/EmptyState";
+import AnimatedInput from "../../components/AnimatedInput";
+import GlassCard from "../../components/GlassCard";
+import ScreenContainer from "../../components/ScreenContainer";
 import { adminCreateWorkerSchema, workerSchema } from "../../utils/validationSchemas";
 import useUIStore from "../../store/uiStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
@@ -21,6 +24,7 @@ const ManageWorkersScreen = () => {
   const [createRoleMenu, setCreateRoleMenu] = useState(false);
   const [editing, setEditing] = useState(null);
   const { showSnackbar } = useUIStore();
+  const theme = useTheme();
 
   const {
     control,
@@ -104,19 +108,14 @@ const ManageWorkersScreen = () => {
   };
 
   return (
-    <View style={{ flex: 1, padding: 12 }}>
-      <TextInput
-        mode="outlined"
-        label="Search worker"
-        value={search}
-        onChangeText={setSearch}
-        style={{ marginBottom: 10 }}
-      />
+    <ScreenContainer>
+      <AnimatedInput label="Search worker" value={search} onChangeText={setSearch} style={styles.search} />
 
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={<EmptyState text="No workers found." />}
+        contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -128,15 +127,14 @@ const ManageWorkersScreen = () => {
           />
         }
         renderItem={({ item }) => (
-          <Card style={{ marginBottom: 10 }}>
-            <Card.Content>
-              <Text variant="titleMedium">{item.fullName}</Text>
-              <Text>{item.email}</Text>
-              <Text>{item.phoneNumber}</Text>
-              <Text>Role: {item.role}</Text>
-            </Card.Content>
-            <Card.Actions>
+          <GlassCard>
+            <Text style={[styles.name, { color: theme.colors.onSurface }]}>{item.fullName}</Text>
+            <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>{item.email}</Text>
+            <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>{item.phoneNumber}</Text>
+            <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Role: {item.role}</Text>
+            <View style={styles.actions}>
               <Button
+                mode="contained-tonal"
                 onPress={() => {
                   setEditing(item);
                   reset({
@@ -149,44 +147,46 @@ const ManageWorkersScreen = () => {
               >
                 Edit
               </Button>
-              <Button textColor="#B00020" onPress={() => onDelete(item.id)}>
+              <Button textColor={theme.custom.colors.error} onPress={() => onDelete(item.id)}>
                 Delete
               </Button>
-            </Card.Actions>
-          </Card>
+            </View>
+          </GlassCard>
         )}
       />
 
       <Portal>
-        <Dialog visible={editVisible} onDismiss={() => setEditVisible(false)}>
+        <Dialog visible={editVisible} onDismiss={() => setEditVisible(false)} style={styles.dialog}>
           <Dialog.Title>Edit Worker</Dialog.Title>
           <Dialog.Content>
-            <FormTextField control={control} name="fullName" label="Full Name" />
-            <FormTextField control={control} name="phoneNumber" label="Phone Number" keyboardType="phone-pad" />
-            <Menu
-              visible={roleMenu}
-              onDismiss={() => setRoleMenu(false)}
-              anchor={
-                <Button mode="outlined" onPress={() => setRoleMenu(true)}>
-                  Role: {selectedRole}
-                </Button>
-              }
-            >
-              <Menu.Item
-                title="worker"
-                onPress={() => {
-                  setValue("role", "worker");
-                  setRoleMenu(false);
-                }}
-              />
-              <Menu.Item
-                title="admin"
-                onPress={() => {
-                  setValue("role", "admin");
-                  setRoleMenu(false);
-                }}
-              />
-            </Menu>
+            <ScrollView style={styles.formScroll} contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+              <FormTextField control={control} name="fullName" label="Full Name" autoCapitalize="words" />
+              <FormTextField control={control} name="phoneNumber" label="Phone Number" keyboardType="phone-pad" />
+              <Menu
+                visible={roleMenu}
+                onDismiss={() => setRoleMenu(false)}
+                anchor={
+                  <Button mode="outlined" onPress={() => setRoleMenu(true)} style={styles.roleBtn}>
+                    Role: {selectedRole}
+                  </Button>
+                }
+              >
+                <Menu.Item
+                  title="worker"
+                  onPress={() => {
+                    setValue("role", "worker");
+                    setRoleMenu(false);
+                  }}
+                />
+                <Menu.Item
+                  title="admin"
+                  onPress={() => {
+                    setValue("role", "admin");
+                    setRoleMenu(false);
+                  }}
+                />
+              </Menu>
+            </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setEditVisible(false)}>Cancel</Button>
@@ -194,42 +194,44 @@ const ManageWorkersScreen = () => {
           </Dialog.Actions>
         </Dialog>
 
-        <Dialog visible={createVisible} onDismiss={() => setCreateVisible(false)}>
+        <Dialog visible={createVisible} onDismiss={() => setCreateVisible(false)} style={styles.dialog}>
           <Dialog.Title>Add Worker</Dialog.Title>
           <Dialog.Content>
-            <FormTextField control={createControl} name="fullName" label="Full Name" />
-            <FormTextField control={createControl} name="email" label="Email" keyboardType="email-address" />
-            <FormTextField
-              control={createControl}
-              name="phoneNumber"
-              label="Phone Number"
-              keyboardType="phone-pad"
-            />
-            <FormTextField control={createControl} name="password" label="Password" secureTextEntry />
-            <Menu
-              visible={createRoleMenu}
-              onDismiss={() => setCreateRoleMenu(false)}
-              anchor={
-                <Button mode="outlined" onPress={() => setCreateRoleMenu(true)}>
-                  Role: {selectedCreateRole}
-                </Button>
-              }
-            >
-              <Menu.Item
-                title="worker"
-                onPress={() => {
-                  setCreateValue("role", "worker");
-                  setCreateRoleMenu(false);
-                }}
+            <ScrollView style={styles.formScroll} contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+              <FormTextField control={createControl} name="fullName" label="Full Name" autoCapitalize="words" />
+              <FormTextField control={createControl} name="email" label="Email" keyboardType="email-address" />
+              <FormTextField
+                control={createControl}
+                name="phoneNumber"
+                label="Phone Number"
+                keyboardType="phone-pad"
               />
-              <Menu.Item
-                title="admin"
-                onPress={() => {
-                  setCreateValue("role", "admin");
-                  setCreateRoleMenu(false);
-                }}
-              />
-            </Menu>
+              <FormTextField control={createControl} name="password" label="Password" secureTextEntry />
+              <Menu
+                visible={createRoleMenu}
+                onDismiss={() => setCreateRoleMenu(false)}
+                anchor={
+                  <Button mode="outlined" onPress={() => setCreateRoleMenu(true)} style={styles.roleBtn}>
+                    Role: {selectedCreateRole}
+                  </Button>
+                }
+              >
+                <Menu.Item
+                  title="worker"
+                  onPress={() => {
+                    setCreateValue("role", "worker");
+                    setCreateRoleMenu(false);
+                  }}
+                />
+                <Menu.Item
+                  title="admin"
+                  onPress={() => {
+                    setCreateValue("role", "admin");
+                    setCreateRoleMenu(false);
+                  }}
+                />
+              </Menu>
+            </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setCreateVisible(false)}>Cancel</Button>
@@ -238,9 +240,50 @@ const ManageWorkersScreen = () => {
         </Dialog>
       </Portal>
 
-      <FAB icon="plus" style={{ position: "absolute", right: 16, bottom: 16 }} onPress={() => setCreateVisible(true)} />
-    </View>
+      <FAB icon="plus" style={[styles.fab, { backgroundColor: theme.colors.primary }]} color="#FFFFFF" onPress={() => setCreateVisible(true)} />
+    </ScreenContainer>
   );
 };
+
+const styles = StyleSheet.create({
+  search: {
+    marginBottom: 10
+  },
+  list: {
+    paddingBottom: 120
+  },
+  name: {
+    fontSize: 17,
+    fontWeight: "600",
+    marginBottom: 4
+  },
+  meta: {
+    fontSize: 14,
+    marginBottom: 2
+  },
+  actions: {
+    marginTop: 8,
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  dialog: {
+    borderRadius: 14
+  },
+  roleBtn: {
+    borderRadius: 10,
+    marginTop: 6
+  },
+  formScroll: {
+    maxHeight: 420
+  },
+  formContent: {
+    paddingBottom: 6
+  },
+  fab: {
+    position: "absolute",
+    right: 16,
+    bottom: 86
+  }
+});
 
 export default ManageWorkersScreen;

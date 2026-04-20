@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ScrollView } from "react-native";
-import { Button, Card, Menu, Text } from "react-native-paper";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { Button, Dialog, Portal, useTheme } from "react-native-paper";
 import { useForm } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
+import { useFocusEffect } from "@react-navigation/native";
 import FormTextField from "../../components/FormTextField";
 import useAuthStore from "../../store/authStore";
 import useUIStore from "../../store/uiStore";
@@ -11,12 +12,17 @@ import { logSchema } from "../../utils/validationSchemas";
 import { mapErrorMessage } from "../../utils/errorMapper";
 import { calculateEfficiency, calculateExpectedOutput } from "../../utils/calculations";
 import { formatPercent } from "../../utils/formatters";
+import GlassCard from "../../components/GlassCard";
+import ScreenContainer from "../../components/ScreenContainer";
+import PrimaryButton from "../../components/PrimaryButton";
+import RemoteImage from "../../components/RemoteImage";
 
 const LogEfficiencyScreen = () => {
   const { user, profile } = useAuthStore();
   const { showSnackbar, online } = useUIStore();
+  const theme = useTheme();
   const [machines, setMachines] = useState([]);
-  const [menuVisible, setMenuVisible] = useState(false);
+  const [pickerVisible, setPickerVisible] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const { control, handleSubmit, setValue, watch, reset } = useForm({
@@ -34,13 +40,24 @@ const LogEfficiencyScreen = () => {
   const outputProduced = Number(watch("outputProduced") || 0);
   const downtime = Number(watch("downtime") || 0);
 
-  useEffect(() => {
-    const load = async () => {
+  const loadMachines = React.useCallback(async () => {
+    try {
       const data = await getMachines();
       setMachines(data);
-    };
-    load();
-  }, []);
+    } catch (error) {
+      showSnackbar(mapErrorMessage(error), "error");
+    }
+  }, [showSnackbar]);
+
+  useEffect(() => {
+    loadMachines();
+  }, [loadMachines]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadMachines();
+    }, [loadMachines])
+  );
 
   const selectedMachine = useMemo(
     () => machines.find((machine) => machine.id === selectedMachineId),
@@ -85,44 +102,156 @@ const LogEfficiencyScreen = () => {
   };
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16 }}>
-      <Menu
-        visible={menuVisible}
-        onDismiss={() => setMenuVisible(false)}
-        anchor={
-          <Button mode="outlined" onPress={() => setMenuVisible(true)} style={{ marginBottom: 12 }}>
-            {selectedMachine ? selectedMachine.name : "Select Machine"}
-          </Button>
-        }
-      >
-        {machines.map((machine) => (
-          <Menu.Item
-            key={machine.id}
-            onPress={() => {
-              setValue("machineId", machine.id, { shouldValidate: true });
-              setMenuVisible(false);
-            }}
-            title={`${machine.name} (${machine.code})`}
-          />
-        ))}
-      </Menu>
+    <ScreenContainer scroll>
+      <Button mode="outlined" onPress={() => setPickerVisible(true)} style={styles.machineBtn}>
+        {selectedMachine ? `Machine: ${selectedMachine.name}` : "Select Machine"}
+      </Button>
+
+      {selectedMachine ? (
+        <GlassCard style={styles.selectedMachineCard}>
+          <View style={styles.machineRow}>
+            <RemoteImage uri={selectedMachine.imageUrl} fallbackSource={MACHINE_PLACEHOLDER} style={styles.machineImage} />
+            <View style={styles.machineMeta}>
+              <Text style={[styles.machineName, { color: theme.colors.onSurface }]}>{selectedMachine.name}</Text>
+              <Text style={[styles.machineText, { color: theme.custom.colors.textMuted }]}>Code: {selectedMachine.code}</Text>
+              <Text style={[styles.machineText, { color: theme.custom.colors.textMuted }]}>Expected/hour: {selectedMachine.expectedOutputPerHour}</Text>
+            </View>
+          </View>
+        </GlassCard>
+      ) : null}
 
       <FormTextField control={control} name="workingHours" label="Working Hours" keyboardType="numeric" />
       <FormTextField control={control} name="outputProduced" label="Output Produced" keyboardType="numeric" />
       <FormTextField control={control} name="downtime" label="Downtime (Hours)" keyboardType="numeric" />
 
-      <Card style={{ marginBottom: 12 }}>
-        <Card.Content>
-          <Text>Expected Output: {expectedOutput.toFixed(2)}</Text>
-          <Text>Calculated Efficiency: {formatPercent(efficiency)}</Text>
-        </Card.Content>
-      </Card>
+      <GlassCard style={styles.statsCard}>
+        <Text style={[styles.metricLabel, { color: theme.custom.colors.textMuted }]}>Expected Output</Text>
+        <Text style={[styles.metricValue, { color: theme.colors.onSurface }]}>{expectedOutput.toFixed(2)}</Text>
+        <Text style={[styles.metricLabel, { color: theme.custom.colors.textMuted, marginTop: 8 }]}>Calculated Efficiency</Text>
+        <Text style={[styles.metricValue, { color: theme.colors.primary }]}>{formatPercent(efficiency)}</Text>
+      </GlassCard>
 
-      <Button mode="contained" onPress={handleSubmit(onSubmit)} loading={saving}>
-        Save Log
-      </Button>
-    </ScrollView>
+      <PrimaryButton title="Save Log" onPress={handleSubmit(onSubmit)} loading={saving} />
+
+      <Portal>
+        <Dialog visible={pickerVisible} onDismiss={() => setPickerVisible(false)} style={styles.pickerDialog}>
+          <Dialog.Title>Select Machine</Dialog.Title>
+          <Dialog.Content>
+            <FlatList
+              data={machines}
+              keyExtractor={(item) => item.id}
+              style={styles.pickerList}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={[
+                    styles.machineOption,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      shadowColor: theme.dark ? "#020617" : "#94A3B8",
+                      shadowOpacity: theme.dark ? 0.2 : 0.1
+                    }
+                  ]}
+                  onPress={() => {
+                    setValue("machineId", item.id, { shouldValidate: true });
+                    setPickerVisible(false);
+                  }}
+                >
+                  <RemoteImage uri={item.imageUrl} fallbackSource={MACHINE_PLACEHOLDER} style={styles.optionImage} />
+                  <View style={styles.optionMeta}>
+                    <Text style={[styles.optionTitle, { color: theme.colors.onSurface }]}>{item.name}</Text>
+                    <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>{item.code} | {item.expectedOutputPerHour}/hr</Text>
+                  </View>
+                </Pressable>
+              )}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPickerVisible(false)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+    </ScreenContainer>
   );
 };
+
+const styles = StyleSheet.create({
+  machineBtn: {
+    marginBottom: 12,
+    borderRadius: 10
+  },
+  statsCard: {
+    marginTop: 4,
+    marginBottom: 8
+  },
+  metricLabel: {
+    fontSize: 14,
+    fontWeight: "500"
+  },
+  metricValue: {
+    marginTop: 4,
+    fontSize: 24,
+    fontWeight: "600"
+  },
+  selectedMachineCard: {
+    marginTop: -4
+  },
+  machineRow: {
+    flexDirection: "row",
+    gap: 12
+  },
+  machineImage: {
+    width: 58,
+    height: 58,
+    borderRadius: 12,
+    backgroundColor: "#E2E8F0"
+  },
+  machineMeta: {
+    flex: 1
+  },
+  machineName: {
+    fontSize: 16,
+    fontWeight: "600"
+  },
+  machineText: {
+    marginTop: 2,
+    fontSize: 13
+  },
+  pickerDialog: {
+    borderRadius: 14
+  },
+  pickerList: {
+    maxHeight: 360
+  },
+  machineOption: {
+    borderRadius: 10,
+    padding: 8,
+    marginBottom: 8,
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2
+  },
+  optionImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 10,
+    backgroundColor: "#E2E8F0"
+  },
+  optionMeta: {
+    flex: 1
+  },
+  optionTitle: {
+    fontSize: 15,
+    fontWeight: "600"
+  },
+  optionText: {
+    fontSize: 13,
+    marginTop: 2
+  }
+});
+
+const MACHINE_PLACEHOLDER = require("../../../assets/logo.png");
 
 export default LogEfficiencyScreen;

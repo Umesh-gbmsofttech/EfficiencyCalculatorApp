@@ -1,64 +1,179 @@
-import React, { useMemo, useState } from "react";
-import { FlatList, RefreshControl, View } from "react-native";
-import { Button, Card, Text, TextInput } from "react-native-paper";
+import React, { useCallback, useMemo, useState } from "react";
+import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
+import { useTheme } from "react-native-paper";
 import useAuthStore from "../../store/authStore";
-import usePaginatedLogs from "../../hooks/usePaginatedLogs";
-import EmptyState from "../../components/EmptyState";
+import { getLogsPage } from "../../services/firebase/firestore";
+import { mapErrorMessage } from "../../utils/errorMapper";
 import { formatDateTime, formatPercent } from "../../utils/formatters";
+import useUIStore from "../../store/uiStore";
+import AnimatedInput from "../../components/AnimatedInput";
+import GlassCard from "../../components/GlassCard";
+import RemoteImage from "../../components/RemoteImage";
+import ScreenContainer from "../../components/ScreenContainer";
 
 const WorkerReportsScreen = () => {
-  const { user } = useAuthStore();
+  const { user, profile } = useAuthStore();
+  const { showSnackbar } = useUIStore();
+  const theme = useTheme();
   const [search, setSearch] = useState("");
-  const baseFilters = useMemo(() => ({}), []);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [reports, setReports] = useState([]);
 
-  const { records, loading, refreshing, hasMore, loadMore, refresh } = usePaginatedLogs({
-    role: "worker",
-    uid: user?.uid,
-    filters: baseFilters,
-    enabled: Boolean(user?.uid)
-  });
+  const role = profile?.role || null;
+  const isAdmin = role === "admin";
 
-  const visibleRecords = useMemo(() => {
-    if (!search.trim()) return records;
+  const fetchReports = useCallback(async (isPullRefresh = false) => {
+    if (!user?.uid) {
+      setReports([]);
+      setLoading(false);
+      return;
+    }
+
+    if (isPullRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const response = await getLogsPage({ role: "worker", uid: user.uid, filters: {}, cursor: null, pageSize: 50 });
+      setReports(response.records || []);
+      console.info("[WorkerReports] state", { role, reportsLength: (response.records || []).length });
+    } catch (error) {
+      setReports([]);
+      if (error?.code !== "failed-precondition" && error?.code !== "permission-denied") {
+        showSnackbar(mapErrorMessage(error), "error");
+      }
+      console.warn("[WorkerReports] fetch error", { uid: user.uid, role, code: error?.code || "unknown" });
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [role, showSnackbar, user?.uid]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchReports(false);
+    }, [fetchReports])
+  );
+
+  const visibleReports = useMemo(() => {
+    if (!search.trim()) return reports;
     const s = search.toLowerCase();
-    return records.filter((item) => item.machineName?.toLowerCase().includes(s));
-  }, [records, search]);
+    return reports.filter((item) => item.machineName?.toLowerCase().includes(s));
+  }, [reports, search]);
+
+  if (!role) return null;
+
+  if (isAdmin) {
+    return (
+      <ScreenContainer>
+        <View style={styles.centerWrap}>
+          <Text style={[styles.restrictedText, { color: theme.custom.colors.textMuted }]}>Access restricted</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  if (loading) {
+    return (
+      <ScreenContainer>
+        <View style={styles.centerWrap}>
+          <Text style={[styles.restrictedText, { color: theme.custom.colors.textMuted }]}>Loading...</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  if (visibleReports.length === 0) {
+    return (
+      <ScreenContainer>
+        <AnimatedInput label="Search by machine" value={search} onChangeText={setSearch} style={styles.search} />
+        <View style={styles.centerWrap}>
+          <Text style={[styles.restrictedText, { color: theme.custom.colors.textMuted }]}>No data available</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   return (
-    <View style={{ flex: 1, padding: 12 }}>
-      <TextInput
-        mode="outlined"
-        label="Search by machine"
-        value={search}
-        onChangeText={setSearch}
-        style={{ marginBottom: 10 }}
-      />
+    <ScreenContainer>
       <FlatList
-        data={visibleRecords}
+        data={visibleReports}
         keyExtractor={(item) => item.id}
-        ListEmptyComponent={loading ? null : <EmptyState text="No reports found." />}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+        ListHeaderComponent={<AnimatedInput label="Search by machine" value={search} onChangeText={setSearch} style={styles.search} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchReports(true)} />}
+        contentContainerStyle={styles.list}
         renderItem={({ item }) => (
-          <Card style={{ marginBottom: 8 }}>
-            <Card.Content>
-              <Text variant="titleSmall">{item.machineName}</Text>
-              <Text>Hours: {item.workingHours} | Output: {item.outputProduced}</Text>
-              <Text>Downtime: {item.downtime} | Expected: {item.expectedOutput}</Text>
-              <Text>Efficiency: {formatPercent(item.efficiency)}</Text>
-              <Text>{formatDateTime(item.timestamp)}</Text>
-            </Card.Content>
-          </Card>
+          <GlassCard>
+            <View style={styles.row}>
+              <RemoteImage uri={item.machineImageUrl} fallbackSource={MACHINE_PLACEHOLDER} style={styles.thumb} />
+              <View style={styles.rowContent}>
+                <Text style={[styles.title, { color: theme.colors.onSurface }]}>
+                  {item.machineName} {item.machineCode ? `(${item.machineCode})` : ""}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Hours: {item.workingHours} | Output: {item.outputProduced}</Text>
+            <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Downtime: {item.downtime} | Expected: {item.expectedOutput}</Text>
+            <Text style={[styles.efficiency, { color: theme.colors.primary }]}>Efficiency: {formatPercent(item.efficiency)}</Text>
+            <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>{formatDateTime(item.timestamp)}</Text>
+          </GlassCard>
         )}
-        ListFooterComponent={
-          hasMore ? (
-            <Button loading={loading} onPress={loadMore}>
-              Load More
-            </Button>
-          ) : null
-        }
       />
-    </View>
+    </ScreenContainer>
   );
 };
+
+const styles = StyleSheet.create({
+  search: {
+    marginBottom: 10
+  },
+  list: {
+    paddingBottom: 120
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 4
+  },
+  row: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 4
+  },
+  rowContent: {
+    flex: 1
+  },
+  thumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: "#E2E8F0"
+  },
+  meta: {
+    fontSize: 14,
+    marginBottom: 2
+  },
+  efficiency: {
+    marginTop: 4,
+    marginBottom: 2,
+    fontSize: 15,
+    fontWeight: "600"
+  },
+  centerWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  restrictedText: {
+    fontSize: 15,
+    fontWeight: "500"
+  }
+});
+
+const MACHINE_PLACEHOLDER = require("../../../assets/logo.png");
 
 export default WorkerReportsScreen;

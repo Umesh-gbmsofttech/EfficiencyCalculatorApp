@@ -1,6 +1,8 @@
 import React from "react";
-import { View } from "react-native";
-import { Menu, Button, TextInput } from "react-native-paper";
+import { StyleSheet, Text, View } from "react-native";
+import { Button, Menu, useTheme } from "react-native-paper";
+import AnimatedInput from "./AnimatedInput";
+import GlassCard from "./GlassCard";
 
 const ReportFilters = ({
   workers,
@@ -11,74 +13,108 @@ const ReportFilters = ({
   setWorkerMenu,
   machineMenu,
   setMachineMenu
-}) => (
-  <View style={{ marginBottom: 12 }}>
-    <TextInput
-      label="Search"
-      mode="outlined"
-      value={filters.search}
-      onChangeText={(v) => onChange("search", v)}
-      style={{ marginBottom: 8 }}
-    />
+}) => {
+  const theme = useTheme();
+  return (
+    <GlassCard style={styles.card}>
+      <Text style={[styles.title, { color: theme.colors.onSurface }]}>Filters</Text>
+      <AnimatedInput
+        label="Search worker or machine"
+        value={filters.search}
+        onChangeText={(v) => onChange("search", v)}
+        style={styles.gap}
+      />
 
-    <Menu
-      visible={workerMenu}
-      onDismiss={() => setWorkerMenu(false)}
-      anchor={
-        <Button mode="outlined" onPress={() => setWorkerMenu(true)} style={{ marginBottom: 8 }}>
-          {filters.workerId ? workers.find((w) => w.id === filters.workerId)?.fullName || "Worker" : "All Workers"}
-        </Button>
-      }
-    >
-      <Menu.Item onPress={() => { onChange("workerId", ""); setWorkerMenu(false); }} title="All Workers" />
-      {workers.map((worker) => (
-        <Menu.Item
-          key={worker.id}
-          onPress={() => {
-            onChange("workerId", worker.id);
-            setWorkerMenu(false);
-          }}
-          title={worker.fullName}
-        />
-      ))}
-    </Menu>
+      <View style={styles.gap}>
+        <Menu
+          visible={workerMenu}
+          onDismiss={() => setWorkerMenu(false)}
+          anchor={
+            <Button mode="outlined" onPress={() => setWorkerMenu(true)} style={styles.menuBtn}>
+              {filters.workerId ? workers.find((w) => w.id === filters.workerId)?.fullName || "Worker" : "All Workers"}
+            </Button>
+          }
+        >
+          <Menu.Item
+            onPress={() => {
+              onChange("workerId", "");
+              setWorkerMenu(false);
+            }}
+            title="All Workers"
+          />
+          {workers.map((worker) => (
+            <Menu.Item
+              key={worker.id}
+              onPress={() => {
+                onChange("workerId", worker.id);
+                setWorkerMenu(false);
+              }}
+              title={worker.fullName}
+            />
+          ))}
+        </Menu>
+      </View>
 
-    <Menu
-      visible={machineMenu}
-      onDismiss={() => setMachineMenu(false)}
-      anchor={
-        <Button mode="outlined" onPress={() => setMachineMenu(true)} style={{ marginBottom: 8 }}>
-          {filters.machineId ? machines.find((m) => m.id === filters.machineId)?.name || "Machine" : "All Machines"}
-        </Button>
-      }
-    >
-      <Menu.Item onPress={() => { onChange("machineId", ""); setMachineMenu(false); }} title="All Machines" />
-      {machines.map((machine) => (
-        <Menu.Item
-          key={machine.id}
-          onPress={() => {
-            onChange("machineId", machine.id);
-            setMachineMenu(false);
-          }}
-          title={machine.name}
-        />
-      ))}
-    </Menu>
+      <View style={styles.gap}>
+        <Menu
+          visible={machineMenu}
+          onDismiss={() => setMachineMenu(false)}
+          anchor={
+            <Button mode="outlined" onPress={() => setMachineMenu(true)} style={styles.menuBtn}>
+              {filters.machineId ? machines.find((m) => m.id === filters.machineId)?.name || "Machine" : "All Machines"}
+            </Button>
+          }
+        >
+          <Menu.Item
+            onPress={() => {
+              onChange("machineId", "");
+              setMachineMenu(false);
+            }}
+            title="All Machines"
+          />
+          {machines.map((machine) => (
+            <Menu.Item
+              key={machine.id}
+              onPress={() => {
+                onChange("machineId", machine.id);
+                setMachineMenu(false);
+              }}
+              title={machine.name}
+            />
+          ))}
+        </Menu>
+      </View>
 
-    <TextInput
-      label="Date From (YYYY-MM-DD)"
-      mode="outlined"
-      value={filters.dateFrom}
-      onChangeText={(v) => onChange("dateFrom", v)}
-      style={{ marginBottom: 8 }}
-    />
-    <TextInput
-      label="Date To (YYYY-MM-DD)"
-      mode="outlined"
-      value={filters.dateTo}
-      onChangeText={(v) => onChange("dateTo", v)}
-    />
-  </View>
-);
+      <AnimatedInput
+        label="Date From (YYYY-MM-DD)"
+        value={filters.dateFrom}
+        onChangeText={(v) => onChange("dateFrom", v)}
+        style={styles.gap}
+      />
+      <AnimatedInput
+        label="Date To (YYYY-MM-DD)"
+        value={filters.dateTo}
+        onChangeText={(v) => onChange("dateTo", v)}
+      />
+    </GlassCard>
+  );
+};
 
-export default ReportFilters;
+const styles = StyleSheet.create({
+  card: {
+    marginBottom: 12
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "600",
+    marginBottom: 10
+  },
+  gap: {
+    marginBottom: 8
+  },
+  menuBtn: {
+    borderRadius: 10
+  }
+});
+
+export default React.memo(ReportFilters);

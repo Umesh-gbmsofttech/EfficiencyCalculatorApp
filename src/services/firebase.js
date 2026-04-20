@@ -1,11 +1,8 @@
 import { initializeApp, getApp, getApps } from "firebase/app";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-  getAuth
-} from "firebase/auth";
-import { addDoc, collection, doc, getFirestore, serverTimestamp, setDoc } from "firebase/firestore";
+import * as FirebaseAuth from "firebase/auth";
+import { addDoc, collection, doc, getFirestore, serverTimestamp, setDoc, Timestamp } from "firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
 import { COLLECTIONS } from "../constants/collections";
 
 const firebaseConfig = {
@@ -52,23 +49,38 @@ const runtimeFirebaseConfig =
     : firebaseConfig;
 
 const app = getApps().length ? getApp() : initializeApp(runtimeFirebaseConfig);
-const auth = getAuth(app);
+
+let auth;
+if (Platform.OS === "web") {
+  auth = FirebaseAuth.getAuth(app);
+} else {
+  try {
+    // eslint-disable-next-line import/namespace
+    auth = FirebaseAuth.initializeAuth(app, {
+      // eslint-disable-next-line import/namespace
+      persistence: FirebaseAuth.getReactNativePersistence(AsyncStorage)
+    });
+  } catch {
+    auth = FirebaseAuth.getAuth(app);
+  }
+}
+
 const db = getFirestore(app);
 
 const normalizeEmail = (email) => email.trim().toLowerCase();
 
 export const signup = async (email, password) => {
-  const result = await createUserWithEmailAndPassword(auth, normalizeEmail(email), password);
+  const result = await FirebaseAuth.createUserWithEmailAndPassword(auth, normalizeEmail(email), password);
   return result.user;
 };
 
 export const login = async (email, password) => {
-  const result = await signInWithEmailAndPassword(auth, normalizeEmail(email), password);
+  const result = await FirebaseAuth.signInWithEmailAndPassword(auth, normalizeEmail(email), password);
   return result.user;
 };
 
 export const logout = async () => {
-  await signOut(auth);
+  await FirebaseAuth.signOut(auth);
 };
 
 export const createUserProfile = async (uid, profileData = {}) => {
@@ -96,7 +108,7 @@ export const addMachine = async (machineData = {}) => {
 export const logEfficiency = async (logData = {}) => {
   const ref = await addDoc(collection(db, COLLECTIONS.LOGS), {
     ...logData,
-    timestamp: serverTimestamp()
+    timestamp: Timestamp.now()
   });
   return ref.id;
 };
