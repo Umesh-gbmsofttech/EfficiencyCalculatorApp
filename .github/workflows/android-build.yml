@@ -77,4 +77,4 @@ jobs:
         with:
           tag_name: v${{ github.run_number }}
           name: APK Build ${{ github.run_number }}
-          files: android/app/build/outputs/apk/release/app-release.apk
+          files: android/app/build/outputs/apk/release/efficiency-calc.apk
