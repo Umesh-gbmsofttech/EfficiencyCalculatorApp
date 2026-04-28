@@ -33,7 +33,7 @@ const ProfileScreen = () => {
         </Text>
         <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>{profile?.email || user?.email}</Text>
         <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>{profile?.phoneNumber || "No phone"}</Text>
-        <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Role: {profile?.role || "worker"}</Text>
+        <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Role: {profile?.role || "operator"}</Text>
       </GlassCard>
 
       <GlassCard>

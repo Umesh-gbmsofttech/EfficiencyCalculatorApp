@@ -44,7 +44,7 @@ export const machineSchema = yup.object({
 export const workerSchema = yup.object({
   fullName: yup.string().required("Full name is required"),
   phoneNumber: yup.string().required("Phone number is required"),
-  role: yup.string().oneOf(["admin", "worker"]).required("Role is required")
+  role: yup.string().oneOf(["admin", "operator", "staff"]).required("Role is required")
 });
 
 export const adminCreateWorkerSchema = yup.object({
@@ -52,7 +52,7 @@ export const adminCreateWorkerSchema = yup.object({
   email: yup.string().email("Enter valid email").required("Email is required"),
   phoneNumber: yup.string().required("Phone number is required"),
   password: yup.string().min(6, "Minimum 6 characters").required("Password is required"),
-  role: yup.string().oneOf(["admin", "worker"]).required("Role is required")
+  role: yup.string().oneOf(["admin", "operator", "staff"]).required("Role is required")
 });
 
 export const logSchema = yup.object({

@@ -33,7 +33,7 @@ const SignupScreen = ({ navigation }) => {
     try {
       setLoading(true);
       await signupUser(values);
-      showSnackbar("Account created. You are logged in as worker.", "success");
+      showSnackbar("Account created. You are logged in as operator.", "success");
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
     } finally {
@@ -46,7 +46,7 @@ const SignupScreen = ({ navigation }) => {
       <AppLogo size={100} />
       <Text style={[styles.title, { color: theme.colors.onSurface }]}>Create Account</Text>
       <Text style={[styles.subtitle, { color: theme.custom.colors.textMuted }]}>
-        Role is assigned as worker by default. Admin can promote later.
+        Role is assigned as operator by default. Admin can change later.
       </Text>
       <GlassCard>
         <FormTextField control={control} name="fullName" label="Full Name" autoCapitalize="words" />

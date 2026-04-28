@@ -1,5 +1,14 @@
 import { initializeApp, getApp, getApps } from "firebase/app";
-import * as FirebaseAuth from "firebase/auth";
+/* eslint-disable import/named */
+import {
+  createUserWithEmailAndPassword,
+  getAuth,
+  getReactNativePersistence,
+  initializeAuth,
+  signInWithEmailAndPassword,
+  signOut
+} from "firebase/auth";
+/* eslint-enable import/named */
 import { addDoc, collection, doc, getFirestore, serverTimestamp, setDoc, Timestamp } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
@@ -28,16 +37,13 @@ const missingFirebaseEnv = Object.entries(requiredEnvMap)
   .map(([key]) => key);
 
 const isCiBuild = process.env.CI === "1" || process.env.CI === "true";
-
-if (missingFirebaseEnv.length && !isCiBuild) {
-  throw new Error(
-    `Firebase is not configured. Missing environment variables: ${missingFirebaseEnv.join(", ")}. ` +
-      "Create a local .env file with EXPO_PUBLIC_FIREBASE_* values."
-  );
-}
+const hasMissingEnv = missingFirebaseEnv.length > 0;
+const firebaseInitError = hasMissingEnv && !isCiBuild
+  ? `Firebase is not configured. Missing environment variables: ${missingFirebaseEnv.join(", ")}`
+  : null;
 
 const runtimeFirebaseConfig =
-  missingFirebaseEnv.length && isCiBuild
+  hasMissingEnv
     ? {
         apiKey: firebaseConfig.apiKey || "ci-placeholder",
         authDomain: firebaseConfig.authDomain || "ci-placeholder.firebaseapp.com",
@@ -52,20 +58,18 @@ const app = getApps().length ? getApp() : initializeApp(runtimeFirebaseConfig);
 
 let auth;
 if (Platform.OS === "web") {
-  auth = FirebaseAuth.getAuth(app);
+  auth = getAuth(app);
 } else {
   try {
-    // eslint-disable-next-line import/namespace
-    auth = FirebaseAuth.initializeAuth(app, {
-      // eslint-disable-next-line import/namespace
-      persistence: FirebaseAuth.getReactNativePersistence(AsyncStorage)
+    auth = initializeAuth(app, {
+      persistence: getReactNativePersistence(AsyncStorage)
     });
   } catch (error) {
     const alreadyInitialized =
       error?.code === "auth/already-initialized" ||
       String(error?.message || "").toLowerCase().includes("already-initialized");
     if (!alreadyInitialized) throw error;
-    auth = FirebaseAuth.getAuth(app);
+    auth = getAuth(app);
   }
 }
 
@@ -74,17 +78,17 @@ const db = getFirestore(app);
 const normalizeEmail = (email) => email.trim().toLowerCase();
 
 export const signup = async (email, password) => {
-  const result = await FirebaseAuth.createUserWithEmailAndPassword(auth, normalizeEmail(email), password);
+  const result = await createUserWithEmailAndPassword(auth, normalizeEmail(email), password);
   return result.user;
 };
 
 export const login = async (email, password) => {
-  const result = await FirebaseAuth.signInWithEmailAndPassword(auth, normalizeEmail(email), password);
+  const result = await signInWithEmailAndPassword(auth, normalizeEmail(email), password);
   return result.user;
 };
 
 export const logout = async () => {
-  await FirebaseAuth.signOut(auth);
+  await signOut(auth);
 };
 
 export const createUserProfile = async (uid, profileData = {}) => {
@@ -117,4 +121,4 @@ export const logEfficiency = async (logData = {}) => {
   return ref.id;
 };
 
-export { app, auth, db, runtimeFirebaseConfig as firebaseConfig };
+export { app, auth, db, runtimeFirebaseConfig as firebaseConfig, firebaseInitError, missingFirebaseEnv };

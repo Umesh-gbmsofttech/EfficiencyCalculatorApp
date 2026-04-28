@@ -16,9 +16,25 @@ import GlassCard from "../../components/GlassCard";
 import ScreenContainer from "../../components/ScreenContainer";
 import PrimaryButton from "../../components/PrimaryButton";
 import RemoteImage from "../../components/RemoteImage";
+import { useCompanyConfig } from "../../context/companyConfig";
+import useGeoFence from "../../hooks/useGeoFence";
 
 const LogEfficiencyScreen = () => {
   const { user, profile } = useAuthStore();
+  const {
+    companyLocation,
+    permissionStatus,
+    servicesEnabled
+  } = useCompanyConfig();
+  const {
+    isInsideRadius,
+    distance,
+    loading: geoLoading,
+    error: geoError,
+    requestLocationAccess,
+    refreshLocation,
+    openDeviceLocationSettings
+  } = useGeoFence();
   const { showSnackbar, online } = useUIStore();
   const theme = useTheme();
   const [machines, setMachines] = useState([]);
@@ -31,7 +47,14 @@ const LogEfficiencyScreen = () => {
       machineId: "",
       workingHours: "",
       outputProduced: "",
-      downtime: "0"
+      downtime: "0",
+      partName: "",
+      operationCode: "",
+      cycleTime: "",
+      plannedQty: "",
+      actualQty: "",
+      rejectedQty: "0",
+      breakdownReason: ""
     }
   });
 
@@ -39,6 +62,7 @@ const LogEfficiencyScreen = () => {
   const workingHours = Number(watch("workingHours") || 0);
   const outputProduced = Number(watch("outputProduced") || 0);
   const downtime = Number(watch("downtime") || 0);
+  const role = profile?.role === "worker" ? "operator" : profile?.role;
 
   const loadMachines = React.useCallback(async () => {
     try {
@@ -84,16 +108,51 @@ const LogEfficiencyScreen = () => {
         showSnackbar("Select machine first", "error");
         return;
       }
+      if (permissionStatus !== "granted") {
+        showSnackbar("Grant location permission to submit logs.", "warning");
+        return;
+      }
+      if (!servicesEnabled) {
+        showSnackbar("Turn on device location to submit logs.", "warning");
+        return;
+      }
+      if (!isInsideRadius) {
+        showSnackbar(`You must be within ${companyLocation.radiusMeters} meters of company to mark attendance`, "error");
+        return;
+      }
+      if (role === "staff") {
+        showSnackbar("Staff can only mark attendance.", "warning");
+        return;
+      }
       setSaving(true);
       await createEfficiencyLog({
         machine: selectedMachine,
         worker: { uid: user.uid, fullName: profile?.fullName || user?.displayName || "Worker" },
         workingHours: values.workingHours,
         outputProduced: values.outputProduced,
-        downtime: values.downtime
+        downtime: values.downtime,
+        partName: values.partName,
+        operationCode: values.operationCode,
+        cycleTime: values.cycleTime,
+        plannedQty: values.plannedQty,
+        actualQty: values.actualQty,
+        rejectedQty: values.rejectedQty,
+        breakdownReason: values.breakdownReason
       });
       showSnackbar("Efficiency log added", "success");
-      reset({ machineId: "", workingHours: "", outputProduced: "", downtime: "0" });
+      reset({
+        machineId: "",
+        workingHours: "",
+        outputProduced: "",
+        downtime: "0",
+        partName: "",
+        operationCode: "",
+        cycleTime: "",
+        plannedQty: "",
+        actualQty: "",
+        rejectedQty: "0",
+        breakdownReason: ""
+      });
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
     } finally {
@@ -103,7 +162,18 @@ const LogEfficiencyScreen = () => {
 
   return (
     <ScreenContainer scroll>
-      <Button mode="outlined" onPress={() => setPickerVisible(true)} style={styles.machineBtn}>
+      <Button
+        mode="outlined"
+        onPress={() => {
+          if (!isInsideRadius) {
+            showSnackbar(`You must be within ${companyLocation.radiusMeters} meters of company to mark attendance`, "warning");
+            return;
+          }
+          setPickerVisible(true);
+        }}
+        style={styles.machineBtn}
+        disabled={!isInsideRadius}
+      >
         {selectedMachine ? `Machine: ${selectedMachine.name}` : "Select Machine"}
       </Button>
 
@@ -123,6 +193,13 @@ const LogEfficiencyScreen = () => {
       <FormTextField control={control} name="workingHours" label="Working Hours" keyboardType="numeric" />
       <FormTextField control={control} name="outputProduced" label="Output Produced" keyboardType="numeric" />
       <FormTextField control={control} name="downtime" label="Downtime (Hours)" keyboardType="numeric" />
+      <FormTextField control={control} name="partName" label="Part Name" />
+      <FormTextField control={control} name="operationCode" label="Operation Code" />
+      <FormTextField control={control} name="cycleTime" label="Cycle Time" keyboardType="numeric" />
+      <FormTextField control={control} name="plannedQty" label="Planned Qty" keyboardType="numeric" />
+      <FormTextField control={control} name="actualQty" label="Actual Qty" keyboardType="numeric" />
+      <FormTextField control={control} name="rejectedQty" label="Rejected Qty" keyboardType="numeric" />
+      <FormTextField control={control} name="breakdownReason" label="Breakdown Reason" />
 
       <GlassCard style={styles.statsCard}>
         <Text style={[styles.metricLabel, { color: theme.custom.colors.textMuted }]}>Expected Output</Text>
@@ -131,7 +208,45 @@ const LogEfficiencyScreen = () => {
         <Text style={[styles.metricValue, { color: theme.colors.primary }]}>{formatPercent(efficiency)}</Text>
       </GlassCard>
 
-      <PrimaryButton title="Save Log" onPress={handleSubmit(onSubmit)} loading={saving} />
+      {permissionStatus !== "granted" || !servicesEnabled ? (
+        <GlassCard>
+          <Text style={[styles.locationTitle, { color: theme.colors.onSurface }]}>Location Required</Text>
+          <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
+            Turn on device location and allow permission to submit production logs.
+          </Text>
+          <View style={styles.locationActions}>
+            <Button mode="contained-tonal" onPress={requestLocationAccess}>
+              Enable Permission
+            </Button>
+            <Button mode="outlined" onPress={openDeviceLocationSettings}>
+              Open Settings
+            </Button>
+          </View>
+        </GlassCard>
+      ) : null}
+
+      <PrimaryButton
+        title="Save Log"
+        onPress={handleSubmit(onSubmit)}
+        loading={saving}
+        disabled={!isInsideRadius || permissionStatus !== "granted" || !servicesEnabled}
+      />
+      <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
+        Company zone: {companyLocation.latitude}, {companyLocation.longitude} ({companyLocation.radiusMeters}m)
+      </Text>
+      <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
+        {geoLoading
+          ? "Checking your location..."
+          : distance == null
+            ? "Current distance: unavailable"
+            : `Current distance: ${Math.round(distance)}m (${isInsideRadius ? "inside" : "outside"})`}
+      </Text>
+      {geoError ? (
+        <Text style={[styles.locationHint, { color: theme.custom.colors.error }]}>Location status: {geoError}</Text>
+      ) : null}
+      <Button compact mode="text" onPress={refreshLocation}>
+        Refresh Location
+      </Button>
 
       <Portal>
         <Dialog visible={pickerVisible} onDismiss={() => setPickerVisible(false)} style={styles.pickerDialog}>
@@ -249,6 +364,21 @@ const styles = StyleSheet.create({
   optionText: {
     fontSize: 13,
     marginTop: 2
+  },
+  locationHint: {
+    fontSize: 12,
+    marginTop: 8,
+    marginBottom: 6
+  },
+  locationTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 6
+  },
+  locationActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8
   }
 });
 

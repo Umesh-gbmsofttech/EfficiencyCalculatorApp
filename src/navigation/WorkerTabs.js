@@ -9,20 +9,21 @@ import AnimatedTabBar from "../components/AnimatedTabBar";
 import Header from "../components/Header";
 
 const Tab = createBottomTabNavigator();
+const TAB_ICONS = {
+  Dashboard: "view-dashboard-outline",
+  Log: "clipboard-check-outline",
+  Reports: "chart-box-outline",
+  Profile: "account-circle-outline"
+};
 
 const WorkerTabs = () => (
   <Tab.Navigator
     screenOptions={({ route }) => ({
-      header: () => <Header title={route.name} subtitle="Worker Console" />,
+      header: () => <Header title={route.name} subtitle="Operator Console" />,
       sceneStyle: { backgroundColor: "transparent" },
       tabBarIcon: ({ color, size }) => {
-        const icons = {
-          Dashboard: "speedometer",
-          Log: "clipboard-check-outline",
-          Reports: "chart-line",
-          Profile: "account-circle-outline"
-        };
-        return <MaterialCommunityIcons name={icons[route.name]} size={size} color={color} />;
+        const name = TAB_ICONS[route.name] || "circle-outline";
+        return <MaterialCommunityIcons name={name} size={size} color={color} />;
       },
       tabBarShowLabel: false
     })}

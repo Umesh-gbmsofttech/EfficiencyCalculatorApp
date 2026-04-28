@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { Button, Menu, useTheme } from "react-native-paper";
 import AnimatedInput from "./AnimatedInput";
 import GlassCard from "./GlassCard";
+import { applyDatePreset } from "../utils/timeRange";
 
 const ReportFilters = ({
   workers,
@@ -96,6 +97,22 @@ const ReportFilters = ({
         value={filters.dateTo}
         onChangeText={(v) => onChange("dateTo", v)}
       />
+      <View style={styles.presetRow}>
+        {["day", "week", "month", "year"].map((preset) => (
+          <Button
+            key={preset}
+            mode="text"
+            compact
+            onPress={() => {
+              const next = applyDatePreset(preset);
+              onChange("dateFrom", next.dateFrom);
+              onChange("dateTo", next.dateTo);
+            }}
+          >
+            {preset}
+          </Button>
+        ))}
+      </View>
     </GlassCard>
   );
 };
@@ -114,6 +131,11 @@ const styles = StyleSheet.create({
   },
   menuBtn: {
     borderRadius: 10
+  },
+  presetRow: {
+    marginTop: 2,
+    flexDirection: "row",
+    justifyContent: "space-between"
   }
 });
 

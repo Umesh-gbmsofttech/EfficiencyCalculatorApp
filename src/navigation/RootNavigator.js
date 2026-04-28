@@ -18,7 +18,7 @@ const RootNavigator = () => {
 
   useEffect(() => {
     if (!__DEV__ || !user?.uid || !role) return;
-    const snapshot = `${user.uid}:${role}:${isAdmin ? "admin" : "worker"}`;
+    const snapshot = `${user.uid}:${role}:${isAdmin ? "admin" : "operator"}`;
     if (lastLogRef.current === snapshot) return;
     lastLogRef.current = snapshot;
     console.info("[RootNavigator] role resolved", { uid: user.uid, role, isAdmin });

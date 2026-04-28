@@ -16,10 +16,12 @@ import {
   Timestamp,
   setDoc
 } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { db } from "./config";
 import { COLLECTIONS } from "../../constants/collections";
 import { calculateEfficiency, calculateExpectedOutput } from "../../utils/calculations";
 import { toDateRange } from "../../utils/formatters";
+import { getShiftDate } from "../../utils/shift";
 
 export const normalizeImageUrl = (url = "") => {
   const trimmed = String(url).trim();
@@ -44,14 +46,16 @@ export const getUserRole = async (uid) => {
 };
 
 export const getWorkers = async ({ role, uid } = {}) => {
-  const safeRole = role || "admin";
+  const normalizedRole = role === "worker" ? "operator" : role;
+  const safeRole = normalizedRole || "admin";
   console.log("[Workers] role:", safeRole);
   if (safeRole === "admin") {
     console.log("[Workers] query path:", "users (all)");
-    const snap = await getDocs(collection(db, COLLECTIONS.USERS));
+    const q = query(collection(db, COLLECTIONS.USERS), where("isActive", "==", true));
+    const snap = await getDocs(q);
     return snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((worker) => worker.isActive !== false)
+      .filter((worker) => worker.role !== "admin")
       .sort((a, b) => String(a.fullName || "").localeCompare(String(b.fullName || "")));
   }
 
@@ -98,10 +102,19 @@ export const deleteWorker = async (id, { actorUid, actorRole } = {}) => {
     throw error;
   }
 
-  const batch = writeBatch(db);
-  batch.delete(doc(db, COLLECTIONS.USERS, id));
-  batch.delete(doc(db, COLLECTIONS.ROLES, id));
-  await batch.commit();
+  try {
+    const functions = getFunctions();
+    const callable = httpsCallable(functions, "deleteWorkerCompletely");
+    await callable({ uid: id });
+  } catch (error) {
+    const code = String(error?.code || "");
+    const shouldFallback = code.includes("not-found") || code.includes("unavailable") || code.includes("internal");
+    if (!shouldFallback) throw error;
+    const batch = writeBatch(db);
+    batch.delete(doc(db, COLLECTIONS.USERS, id));
+    batch.delete(doc(db, COLLECTIONS.ROLES, id));
+    await batch.commit();
+  }
 };
 
 export const getMachines = async () => {
@@ -137,23 +150,53 @@ export const removeMachine = async (id) => {
   await deleteDoc(doc(db, COLLECTIONS.MACHINES, id));
 };
 
-export const createEfficiencyLog = async ({ machine, worker, workingHours, outputProduced, downtime }) => {
+export const createEfficiencyLog = async ({
+  machine,
+  worker,
+  workingHours,
+  outputProduced,
+  downtime,
+  partName = "",
+  operationCode = "",
+  cycleTime = 0,
+  plannedQty = 0,
+  actualQty = null,
+  rejectedQty = 0,
+  breakdownReason = ""
+}) => {
+  if (!worker?.uid) {
+    const err = new Error("Invalid log payload: userId is required.");
+    err.code = "invalid-argument";
+    throw err;
+  }
   const expectedOutput = calculateExpectedOutput(machine.expectedOutputPerHour, workingHours, downtime);
   const efficiency = calculateEfficiency(outputProduced, expectedOutput);
 
+  const timestamp = Timestamp.now();
+  const actual = actualQty === null ? Number(outputProduced) : Number(actualQty);
   await addDoc(collection(db, COLLECTIONS.LOGS), {
     machineId: machine.id,
     machineName: machine.name,
     machineCode: machine.code || "",
     machineImageUrl: normalizeImageUrl(machine.imageUrl),
     workerId: worker.uid,
+    userId: worker.uid,
     workerName: worker.fullName,
     workingHours: Number(workingHours),
     outputProduced: Number(outputProduced),
+    actualQty: actual,
+    plannedQty: Number(plannedQty || 0),
+    rejectedQty: Number(rejectedQty || 0),
+    partName: String(partName || "").trim(),
+    operationCode: String(operationCode || "").trim(),
+    cycleTime: Number(cycleTime || 0),
+    breakdownReason: String(breakdownReason || "").trim(),
+    operatorName: worker.fullName,
     downtime: Number(downtime),
     expectedOutput,
     efficiency,
-    timestamp: Timestamp.now(),
+    timestamp,
+    shiftDate: getShiftDate(timestamp),
     createdAt: serverTimestamp()
   });
 
@@ -182,7 +225,7 @@ export const getDashboardStats = async (params) => {
   if (isWorkerScope) {
     const [machinesSnap, logsSnap] = await Promise.all([
       getDocs(query(collection(db, COLLECTIONS.MACHINES))),
-      getDocs(query(collection(db, COLLECTIONS.LOGS), where("workerId", "==", uid)))
+      getDocs(query(collection(db, COLLECTIONS.LOGS), where("userId", "==", uid)))
     ]);
 
     return {
@@ -209,8 +252,8 @@ export const getEfficiencyTrend = async ({ uid, days = 7 }) => {
   const since = new Date();
   since.setDate(since.getDate() - days);
   const constraints = [orderBy("timestamp", "desc"), limit(Math.max(days * 20, 50))];
-  if (uid) constraints.unshift(where("workerId", "==", uid));
-  const role = uid ? "worker" : "admin";
+  if (uid) constraints.unshift(where("userId", "==", uid));
+  const role = uid ? "operator" : "admin";
   try {
     const q = query(collection(db, COLLECTIONS.LOGS), ...constraints);
     const snap = await getDocs(q);
@@ -226,7 +269,7 @@ export const getEfficiencyTrend = async ({ uid, days = 7 }) => {
   } catch (error) {
     if (!isIndexOrRetryableError(error)) throw error;
     const fallbackConstraints = [limit(Math.max(days * 40, 100))];
-    if (uid) fallbackConstraints.unshift(where("workerId", "==", uid));
+    if (uid) fallbackConstraints.unshift(where("userId", "==", uid));
     const fallbackQuery = query(collection(db, COLLECTIONS.LOGS), ...fallbackConstraints);
     const fallbackSnap = await getDocs(fallbackQuery);
     const records = fallbackSnap.docs
@@ -258,25 +301,58 @@ const applyLogFilters = ({ records, role, uid, filters }) => {
   return records.filter((item) => {
     const ts = item.timestamp?.toDate?.();
     if (!ts) return false;
-    if (role !== "admin" && item.workerId !== uid) return false;
-    if (filters.workerId && item.workerId !== filters.workerId) return false;
+    const ownerId = item.userId || item.workerId;
+    if (role !== "admin" && ownerId !== uid) return false;
+    if (filters.workerId && ownerId !== filters.workerId) return false;
     if (filters.machineId && item.machineId !== filters.machineId) return false;
     if (!isSameOrAfter(ts, start) || !isSameOrBefore(ts, end)) return false;
     return true;
   });
 };
 
-const getFallbackLogsPage = async ({ role, uid, filters, cursor = null, pageSize = 12 }) => {
-  const constraints = [orderBy("timestamp", "desc"), limit(pageSize * 4)];
-  if (role !== "admin") constraints.unshift(where("workerId", "==", uid));
+const buildPrimaryLogsQuery = ({ role, uid, filters = {}, cursor = null, pageSize = 12 }) => {
+  const constraints = [];
+  if (role !== "admin") constraints.push(where("userId", "==", uid));
+  if (filters.workerId) constraints.push(where("userId", "==", filters.workerId));
+  if (filters.machineId) constraints.push(where("machineId", "==", filters.machineId));
+  const start = toDateRange(filters.dateFrom);
+  const end = toDateRange(filters.dateTo, true);
+  if (start) constraints.push(where("timestamp", ">=", Timestamp.fromDate(start)));
+  if (end) constraints.push(where("timestamp", "<=", Timestamp.fromDate(end)));
+  constraints.push(orderBy("timestamp", "desc"), limit(pageSize));
   if (cursor) constraints.push(startAfter(cursor));
+  return query(collection(db, COLLECTIONS.LOGS), ...constraints);
+};
 
-  const q = query(collection(db, COLLECTIONS.LOGS), ...constraints);
-  const snap = await getDocs(q);
-  const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const filtered = applyLogFilters({ records: raw, role, uid, filters }).slice(0, pageSize);
+const getFallbackLogsPage = async ({ role, uid, filters, cursor = null, pageSize = 12 }) => {
+  const baseConstraints = [limit(pageSize * 8)];
+  if (cursor) baseConstraints.push(startAfter(cursor));
+
+  let raw = [];
+  let snapDocs = [];
+  if (role === "admin") {
+    const q = query(collection(db, COLLECTIONS.LOGS), ...baseConstraints);
+    const snap = await getDocs(q);
+    raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    snapDocs = snap.docs;
+  } else {
+    const userIdSnap = await getDocs(query(collection(db, COLLECTIONS.LOGS), where("userId", "==", uid), ...baseConstraints));
+    const workerIdSnap = await getDocs(query(collection(db, COLLECTIONS.LOGS), where("workerId", "==", uid), ...baseConstraints));
+    const dedup = new Map();
+    [...userIdSnap.docs, ...workerIdSnap.docs].forEach((d) => dedup.set(d.id, { id: d.id, ...d.data() }));
+    raw = Array.from(dedup.values());
+    snapDocs = [...userIdSnap.docs, ...workerIdSnap.docs];
+  }
+
+  const filtered = applyLogFilters({ records: raw, role, uid, filters })
+    .sort((a, b) => {
+      const aTime = a.timestamp?.toDate?.()?.getTime?.() || 0;
+      const bTime = b.timestamp?.toDate?.()?.getTime?.() || 0;
+      return bTime - aTime;
+    })
+    .slice(0, pageSize);
   const lastId = filtered.length ? filtered[filtered.length - 1].id : null;
-  const lastDoc = lastId ? snap.docs.find((d) => d.id === lastId) || null : null;
+  const lastDoc = lastId ? snapDocs.find((d) => d.id === lastId) || null : null;
   console.info("[Firestore] getLogsPage fallback", { uid: uid || "all", role, resultCount: filtered.length });
 
   return {
@@ -287,27 +363,12 @@ const getFallbackLogsPage = async ({ role, uid, filters, cursor = null, pageSize
 };
 
 export const getLogsPage = async ({ role, uid, filters = {}, cursor = null, pageSize = 12 }) => {
-  const constraints = [orderBy("timestamp", "desc"), limit(pageSize)];
-
-  if (role !== "admin") {
-    constraints.unshift(where("workerId", "==", uid));
-  }
-
-  if (filters.workerId) constraints.unshift(where("workerId", "==", filters.workerId));
-  if (filters.machineId) constraints.unshift(where("machineId", "==", filters.machineId));
-
-  const start = toDateRange(filters.dateFrom);
-  const end = toDateRange(filters.dateTo, true);
-  if (start) constraints.unshift(where("timestamp", ">=", Timestamp.fromDate(start)));
-  if (end) constraints.unshift(where("timestamp", "<=", Timestamp.fromDate(end)));
-
-  if (cursor) constraints.push(startAfter(cursor));
-
+  const normalizedRole = role === "worker" ? "operator" : role;
   try {
-    const q = query(collection(db, COLLECTIONS.LOGS), ...constraints);
+    const q = buildPrimaryLogsQuery({ role: normalizedRole, uid, filters, cursor, pageSize });
     const snap = await getDocs(q);
     const records = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    console.info("[Firestore] getLogsPage", { uid: uid || "all", role, resultCount: records.length });
+    console.info("[Firestore] getLogsPage", { uid: uid || "all", role: normalizedRole, resultCount: records.length });
 
     return {
       records,
@@ -317,7 +378,7 @@ export const getLogsPage = async ({ role, uid, filters = {}, cursor = null, page
   } catch (error) {
     const canFallback = isIndexOrRetryableError(error);
     if (!canFallback) throw error;
-    return getFallbackLogsPage({ role, uid, filters, cursor, pageSize });
+    return getFallbackLogsPage({ role: normalizedRole, uid, filters, cursor, pageSize });
   }
 };
 

@@ -38,7 +38,7 @@ const WorkerReportsScreen = () => {
     }
 
     try {
-      const response = await getLogsPage({ role: "worker", uid: user.uid, filters: {}, cursor: null, pageSize: 50 });
+      const response = await getLogsPage({ role: "operator", uid: user.uid, filters: {}, cursor: null, pageSize: 50 });
       setReports(response.records || []);
       console.info("[WorkerReports] state", { role, reportsLength: (response.records || []).length });
     } catch (error) {

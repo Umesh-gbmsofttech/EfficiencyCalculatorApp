@@ -12,7 +12,15 @@ export default ({ config }) => ({
     resizeMode: "contain",
     backgroundColor: "#F5F5F5"
   },
-  plugins: ["expo-asset"],
+  plugins: [
+    "expo-asset",
+    [
+      "expo-location",
+      {
+        locationAlwaysAndWhenInUsePermission: "Allow Efficiency Calculator to access your location."
+      }
+    ]
+  ],
   assetBundlePatterns: ["**/*"],
   android: {
     package: "com.efficiency.calculator",
@@ -20,6 +28,7 @@ export default ({ config }) => ({
       foregroundImage: "./assets/logo.png",
       backgroundColor: "#F5F5F5"
     },
-    googleServicesFile: "./google-services.json"
+    googleServicesFile: "./google-services.json",
+    permissions: ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
   }
 });

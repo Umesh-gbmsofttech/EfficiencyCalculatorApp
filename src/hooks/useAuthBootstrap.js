@@ -5,8 +5,11 @@ import useUIStore from "../store/uiStore";
 import { logoutUser, subscribeToAuthState } from "../services/firebase/auth";
 import { getUserProfile, getUserRole } from "../services/firebase/firestore";
 
+const normalizeRole = (value) => (value === "worker" ? "operator" : value);
+const wait = (ms) => new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+
 const useAuthBootstrap = () => {
-  const { setUser, setProfile, setInitializing, setRoleLoaded } = useAuthStore();
+  const { setUser, setProfile, setInitializing, setRoleLoaded, setLastKnownRole } = useAuthStore();
   const { setOnline, showSnackbar } = useUIStore();
 
   useEffect(() => {
@@ -24,11 +27,23 @@ const useAuthBootstrap = () => {
         setRoleLoaded(false);
         setUser(currentUser);
         if (currentUser) {
+          const previousRole = normalizeRole(
+            useAuthStore.getState().profile?.role || useAuthStore.getState().lastKnownRole || null
+          );
           let role = null;
           try {
             const roleDoc = await getUserRole(currentUser.uid);
             role = roleDoc?.role || null;
           } catch (roleError) {
+            if (roleError?.code === "unavailable") {
+              await wait(1200);
+              try {
+                const retryDoc = await getUserRole(currentUser.uid);
+                role = retryDoc?.role || null;
+              } catch {
+                // keep graceful fallback behavior
+              }
+            }
             console.warn("[AuthBootstrap] role fetch fallback", {
               uid: currentUser.uid,
               code: roleError?.code || "unknown"
@@ -51,8 +66,9 @@ const useAuthBootstrap = () => {
             fullName: profile?.fullName || currentUser.displayName || "Worker",
             phoneNumber: profile?.phoneNumber || "",
             isActive: profile?.isActive !== false,
-            role: role || profile?.role || "worker"
+            role: normalizeRole(role || profile?.role || previousRole || "operator")
           };
+          setLastKnownRole(mergedProfile.role);
 
           if (mergedProfile.isActive === false) {
             await logoutUser();
@@ -80,13 +96,16 @@ const useAuthBootstrap = () => {
         }
         console.warn("[AuthBootstrap] auth bootstrap error", { code: error?.code || "unknown" });
         if (currentUser) {
+          const previousRole = normalizeRole(
+            useAuthStore.getState().profile?.role || useAuthStore.getState().lastKnownRole || null
+          );
           setProfile({
             uid: currentUser.uid,
             email: currentUser.email || "",
             fullName: currentUser.displayName || "Worker",
             phoneNumber: "",
             isActive: true,
-            role: "worker"
+            role: previousRole || "operator"
           });
         } else {
           setProfile(null);
@@ -101,7 +120,7 @@ const useAuthBootstrap = () => {
       unsubAuth();
       unsubNet();
     };
-  }, [setInitializing, setOnline, setProfile, setRoleLoaded, setUser, showSnackbar]);
+  }, [setInitializing, setLastKnownRole, setOnline, setProfile, setRoleLoaded, setUser, showSnackbar]);
 };
 
 export default useAuthBootstrap;

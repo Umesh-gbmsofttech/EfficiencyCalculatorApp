@@ -26,6 +26,7 @@ const ManageWorkersScreen = () => {
   const [editVisible, setEditVisible] = useState(false);
   const [createVisible, setCreateVisible] = useState(false);
   const [roleMenu, setRoleMenu] = useState(false);
+  const [createRoleMenu, setCreateRoleMenu] = useState(false);
   const [editing, setEditing] = useState(null);
   const { showSnackbar } = useUIStore();
   const theme = useTheme();
@@ -38,18 +39,21 @@ const ManageWorkersScreen = () => {
     watch
   } = useForm({
     resolver: yupResolver(workerSchema),
-    defaultValues: { fullName: "", phoneNumber: "", role: "worker" }
+    defaultValues: { fullName: "", phoneNumber: "", role: "operator" }
   });
   const selectedRole = watch("role");
 
   const {
     control: createControl,
     reset: resetCreate,
-    handleSubmit: handleCreateSubmit
+    handleSubmit: handleCreateSubmit,
+    setValue: setCreateValue,
+    watch: watchCreate
   } = useForm({
     resolver: yupResolver(adminCreateWorkerSchema),
-    defaultValues: { fullName: "", email: "", phoneNumber: "", password: "", role: "worker" }
+    defaultValues: { fullName: "", email: "", phoneNumber: "", password: "", role: "operator" }
   });
+  const createSelectedRole = watchCreate("role");
 
   const loadWorkers = useCallback(async () => {
     if (!role || !user?.uid) {
@@ -107,7 +111,7 @@ const ManageWorkersScreen = () => {
         "success"
       );
       setCreateVisible(false);
-      resetCreate({ fullName: "", email: "", phoneNumber: "", password: "", role: "worker" });
+      resetCreate({ fullName: "", email: "", phoneNumber: "", password: "", role: "operator" });
       await loadWorkers();
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
@@ -143,6 +147,9 @@ const ManageWorkersScreen = () => {
   return (
     <ScreenContainer>
       <AnimatedInput label="Search worker" value={search} onChangeText={setSearch} style={styles.search} />
+      <Button mode="contained" onPress={() => setCreateVisible(true)} style={styles.addWorkerBtn}>
+        Add Worker
+      </Button>
 
       <FlatList
         data={filtered}
@@ -173,7 +180,7 @@ const ManageWorkersScreen = () => {
                   reset({
                     fullName: item.fullName,
                     phoneNumber: item.phoneNumber,
-                    role: item.role || "worker"
+                    role: item.role || "operator"
                   });
                   setEditVisible(true);
                 }}
@@ -207,9 +214,16 @@ const ManageWorkersScreen = () => {
                 }
               >
                 <Menu.Item
-                  title="worker"
+                  title="operator"
                   onPress={() => {
-                    setValue("role", "worker");
+                    setValue("role", "operator");
+                    setRoleMenu(false);
+                  }}
+                />
+                <Menu.Item
+                  title="staff"
+                  onPress={() => {
+                    setValue("role", "staff");
                     setRoleMenu(false);
                   }}
                 />
@@ -242,6 +256,30 @@ const ManageWorkersScreen = () => {
                 keyboardType="phone-pad"
               />
               <FormTextField control={createControl} name="password" label="Password" secureTextEntry />
+              <Menu
+                visible={createRoleMenu}
+                onDismiss={() => setCreateRoleMenu(false)}
+                anchor={
+                  <Button mode="outlined" onPress={() => setCreateRoleMenu(true)} style={styles.roleBtn}>
+                    Role: {createSelectedRole}
+                  </Button>
+                }
+              >
+                <Menu.Item
+                  title="operator"
+                  onPress={() => {
+                    setCreateValue("role", "operator");
+                    setCreateRoleMenu(false);
+                  }}
+                />
+                <Menu.Item
+                  title="staff"
+                  onPress={() => {
+                    setCreateValue("role", "staff");
+                    setCreateRoleMenu(false);
+                  }}
+                />
+              </Menu>
             </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
@@ -264,6 +302,10 @@ const styles = StyleSheet.create({
   },
   list: {
     paddingBottom: 120
+  },
+  addWorkerBtn: {
+    borderRadius: 10,
+    marginBottom: 10
   },
   name: {
     fontSize: 17,

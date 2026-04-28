@@ -9,6 +9,12 @@ import AnimatedTabBar from "../components/AnimatedTabBar";
 import Header from "../components/Header";
 
 const Tab = createBottomTabNavigator();
+const TAB_ICONS = {
+  Machines: "cog-outline",
+  Workers: "account-multiple-outline",
+  Reports: "chart-box-outline",
+  Profile: "account-circle-outline"
+};
 
 const AdminTabs = () => (
   <Tab.Navigator
@@ -16,13 +22,8 @@ const AdminTabs = () => (
       header: () => <Header title={route.name} subtitle="Admin Panel" />,
       sceneStyle: { backgroundColor: "transparent" },
       tabBarIcon: ({ color, size }) => {
-        const icons = {
-          Machines: "factory",
-          Workers: "account-group-outline",
-          Reports: "chart-line",
-          Profile: "account-circle-outline"
-        };
-        return <MaterialCommunityIcons name={icons[route.name]} size={size} color={color} />;
+        const name = TAB_ICONS[route.name] || "circle-outline";
+        return <MaterialCommunityIcons name={name} size={size} color={color} />;
       },
       tabBarShowLabel: false
     })}

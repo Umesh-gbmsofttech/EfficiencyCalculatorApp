@@ -1,9 +1,8 @@
-# Efficiency Calculator
+🚀 Efficiency Calculator
 
-Role-based worker-machine efficiency tracking app built with Expo React Native + Firebase.
+Role-based worker–machine efficiency tracking app built with Expo React Native + Firebase.
 
-## Useful Commands
-```bash
+🛠 Useful Commands
 # install dependencies
 npm install
 
@@ -31,104 +30,39 @@ npm run android:stop
 # clean generated/build folders
 npm run clean
 
-# reset full build state (clean + install + prebuild clean)
+# reset full build state
 npm run reset
 
-# build release APK (from project root)
+# build release APK
 npm run build:android
 
-# build release APK (from android folder / Git Bash)
+# alternative build
 cd android && ./gradlew.bat assembleRelease
-```
-
-## Project Details
-
-### Tech Stack
-- React Native (Expo, JavaScript)
-- React Navigation (Stack + Tabs)
-- Zustand
-- React Hook Form + Yup
-- React Native Paper
-- Firebase Auth + Firestore
-
-### Firebase Setup
-1. Create Firebase project.
-2. Enable Authentication -> Email/Password.
-3. Create Firestore database.
-4. Register Android app with package: `com.efficiency.calculator`.
-5. Download and place `google-services.json` in project root.
-6. Configure `.env` with Firebase values.
-
-### Environment Variables
-Create `.env`:
-```env
-
-EXPO_PUBLIC_FIREBASE_API_KEY=
-EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=
-EXPO_PUBLIC_FIREBASE_PROJECT_ID=
-EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=
-EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
-EXPO_PUBLIC_FIREBASE_APP_ID=
-```
-You can use either `FIREBASE_*` or `EXPO_PUBLIC_FIREBASE_*` keys.
-
-### Firestore Collections
-- `users`
-- `roles`
-- `machines`
-- `logs`
-
-### Roles
-- Signup creates `worker` by default.
-- Admin can promote users by updating:
-  - `roles/{uid}.role = "admin"`
-  - `users/{uid}.role = "admin"`
-- Admin can also create worker/admin users from **Manage Workers**.
-- Delete is soft delete (`isActive = false`).
-
-### Android Signing
-Keystore currently generated at:
-- `C:\Users\ratho\Downloads\WORK\keystore.jks`
-
-Release signing is configured to use:
-- Env vars: `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
-
-### Windows Build Stability Notes
-- Do not run Metro (`npm run start`) while running release build.
-- Stop Gradle daemons before release build: `npm run android:stop`.
-- If CMake file lock errors appear, rerun after:
-  1. `npm run android:stop`
-  2. `npm run clean`
-  3. `npm install`
-  4. `npm run prebuild:clean`
-- Exclude your project folder from antivirus real-time scanning if file locks continue.
-
-### GitHub Actions
-Workflow path:
-- `.github/workflows/android-build.yml`
-
-Required repo secrets:
-- `ANDROID_KEYSTORE_BASE64`
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
-
-## ?? Firebase Setup Guide
-
-### 1. Create Firebase Project
-- Go to Firebase Console
-- Create new project
-
-### 2. Add Android App
-- Package name: com.efficiency.calculator
-- Download google-services.json
-- Place in android/app/
-
-### 3. Add Web App
-- Create Web App (</>)
-- Copy firebaseConfig
-
-### 4. Setup Environment Variables
+⚙️ Tech Stack
+React Native (Expo)
+React Navigation
+Zustand
+React Hook Form + Yup
+React Native Paper
+Firebase Auth + Firestore
+🔥 Firebase Complete Setup (Production)
+1. Create Firebase Project
+Go to Firebase Console
+Create project
+2. Enable Authentication
+Go to Authentication → Sign-in Method
+Enable:
+✅ Email/Password
+3. Add Apps
+Android App
+Package: com.efficiency.calculator
+Download google-services.json
+Place in:
+android/app/google-services.json
+Web App
+Create Web App
+Copy Firebase config → use in .env
+4. Environment Variables
 
 Create .env:
 
@@ -139,34 +73,31 @@ EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=
 EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 EXPO_PUBLIC_FIREBASE_APP_ID=
 
-### 5. Create Admin User
+# Company Location (IMPORTANT)
+EXPO_PUBLIC_COMPANY_LATITUDE=12.9716
+EXPO_PUBLIC_COMPANY_LONGITUDE=77.5946
+EXPO_PUBLIC_COMPANY_RADIUS_METERS=200
+5. Create Admin User
+Go to Authentication → Users
+Add user manually
+Copy UID
+6. Setup Firestore Data
 
-- Go to Authentication -> Users -> Add user
-- Copy UID
+Create these documents manually:
 
-### 6. Setup Firestore Data
-
-Create collections:
-
-roles/{uid}:
+roles/{uid}
 {
   "role": "admin"
 }
-
-users/{uid}:
+users/{uid}
 {
   "uid": "...",
-  "fullName": "...",
-  "email": "...",
+  "fullName": "Admin Name",
+  "email": "admin@email.com",
   "role": "admin",
   "isActive": true
 }
-
-### 7. Firestore Security Rules
-
-Paste rules:
-
-```txt
+7. Firestore Security Rules (FINAL)
 rules_version = '2';
 
 service cloud.firestore {
@@ -176,40 +107,201 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isAdmin() {
-      return isSignedIn() &&
-        get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == "admin";
+    function getRole() {
+      return get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role;
     }
 
-    // USERS
+    function isAdmin() {
+      return isSignedIn() && getRole() == "admin";
+    }
+
+    function isOperator() {
+      return isSignedIn() && getRole() == "operator";
+    }
+
+    function isStaff() {
+      return isSignedIn() && getRole() == "staff";
+    }
+
+    // ✅ USERS
     match /users/{userId} {
-      allow read: if isAdmin(); // ✅ admin sees all workers
-      allow create: if isSignedIn(); // signup
+      allow read: if isAdmin(); 
+      allow create: if isSignedIn() && request.auth.uid == userId;
       allow update, delete: if isAdmin() || request.auth.uid == userId;
     }
 
-    // ROLES
+    // ✅ ROLES (🔥 CRITICAL FIX)
     match /roles/{userId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin(); // ✅ allow admin to promote users
+      allow create: if isSignedIn() && request.auth.uid == userId; // 🔥 THIS FIXES YOUR ISSUE
+      allow update, delete: if isAdmin();
     }
 
-    // MACHINES
+    // ✅ MACHINES
     match /machines/{machineId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
-    // LOGS
+    // ✅ LOGS
     match /logs/{logId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow create: if isOperator(); 
+      allow read: if isAdmin() || request.auth.uid == resource.data.userId;
+      allow update, delete: if isAdmin() || request.auth.uid == resource.data.userId;
     }
   }
 }
-```
+8. 🔴 REQUIRED: Firestore Indexes (VERY IMPORTANT)
 
-### 8. Run App
+Without this → ❌ failed-precondition errors
 
+Go to:
+Firestore → Indexes → Composite → Create
+
+Add:
+
+Index 1 (Logs Query)
+Collection: logs
+Fields:
+- userId (Ascending)
+- timestamp (Descending)
+Index 2 (Admin Reports)
+Collection: logs
+Fields:
+- machineId (Ascending)
+- timestamp (Descending)
+Index 3 (Filtering)
+Collection: logs
+Fields:
+- workerId (Ascending)
+- machineId (Ascending)
+- timestamp (Descending)
+
+👉 OR run app once → click generated index link in error log (recommended)
+
+9. ☁️ Cloud Function (Delete Worker Completely)
+
+Required to fully delete users (Auth + Firestore)
+
+functions/index.js
+const functions = require("firebase-functions");
+const admin = require("firebase-admin");
+
+admin.initializeApp();
+
+exports.deleteWorkerCompletely = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Login required");
+  }
+
+  const uid = context.auth.uid;
+
+  const roleDoc = await admin.firestore().doc(`roles/${uid}`).get();
+  if (roleDoc.data()?.role !== "admin") {
+    throw new functions.https.HttpsError("permission-denied", "Admin only");
+  }
+
+  const targetUid = data.uid;
+
+  await admin.auth().deleteUser(targetUid);
+  await admin.firestore().doc(`users/${targetUid}`).delete();
+  await admin.firestore().doc(`roles/${targetUid}`).delete();
+
+  return { success: true };
+});
+Deploy:
+cd functions
+npm install
+firebase deploy --only functions
+👥 Roles System
+Role	Permissions
+admin	Full control
+operator	Machine + logs
+staff	Attendance only
+📊 Core Features
+Worker efficiency tracking
+Machine performance
+Admin dashboard (yearly analytics)
+Reports filtering (day/week/month/year)
+Salary logic (planned)
+Shift-based tracking (8AM–8PM / 8PM–8AM)
+Geo-fencing (200m restriction)
+⚠️ Common Production Issues & Fixes
+❌ Admin showing as operator
+
+✔ Fix:
+
+Ensure roles/{uid} exists
+Firestore rules deployed
+Internet connection stable
+❌ White screen in APK
+
+✔ Fix:
+
+Missing .env in build
+Add env in GitHub Secrets
+❌ Email already exists
+
+✔ Fix:
+
+Delete from Authentication → Users
+Not just Firestore
+❌ Worker reports empty
+
+✔ Fix:
+
+Create indexes (Step 8)
+❌ Firestore offline errors
+
+✔ Fix:
+
+Check internet
+Firebase config correct
+🔐 GitHub Actions Secrets
+
+Required:
+
+ANDROID_KEYSTORE_BASE64
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_ALIAS
+ANDROID_KEY_PASSWORD
+
+EXPO_PUBLIC_FIREBASE_API_KEY
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN
+EXPO_PUBLIC_FIREBASE_PROJECT_ID
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+EXPO_PUBLIC_FIREBASE_APP_ID
+📦 Android Signing
+
+Keystore path:
+
+C:\Users\ratho\Downloads\WORK\keystore.jks
+🚀 Run App
 npx expo start
 npx expo start -c
+🔥 Final Notes
+No Firebase Storage needed ✅ (using image URLs)
+Rules + Indexes = critical for production
+Always deploy rules after change:
+firebase deploy --only firestore:rules
+
+## GitHub APK Build: Company Location Setup
+
+For production APKs built from GitHub Actions, add these repository secrets:
+
+- `EXPO_PUBLIC_COMPANY_LATITUDE`
+- `EXPO_PUBLIC_COMPANY_LONGITUDE`
+- `EXPO_PUBLIC_COMPANY_RADIUS_METERS`
+
+Example values:
+
+- `EXPO_PUBLIC_COMPANY_LATITUDE=12.971600`
+- `EXPO_PUBLIC_COMPANY_LONGITUDE=77.594600`
+- `EXPO_PUBLIC_COMPANY_RADIUS_METERS=200`
+
+Path:
+
+`GitHub Repo -> Settings -> Secrets and variables -> Actions -> New repository secret`
+
+These are injected in [android-build.yml](/c:/Users/ratho/Downloads/WORK/EfficiencyCalculator/.github/workflows/android-build.yml) and baked into release APK at build time.
