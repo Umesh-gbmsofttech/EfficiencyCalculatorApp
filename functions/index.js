@@ -25,8 +25,15 @@ exports.deleteWorkerCompletely = onCall(async (request) => {
 
   const db = admin.firestore();
   const batch = db.batch();
+  const [logsSnap, attendanceSnap] = await Promise.all([
+    db.collection("logs").where("userId", "==", targetUid).get(),
+    db.collection("attendance").where("userId", "==", targetUid).get()
+  ]);
+  logsSnap.docs.forEach((d) => batch.delete(d.ref));
+  attendanceSnap.docs.forEach((d) => batch.delete(d.ref));
   batch.delete(db.collection("users").doc(targetUid));
   batch.delete(db.collection("roles").doc(targetUid));
+  batch.delete(db.collection("salaryConfigs").doc(targetUid));
   await batch.commit();
 
   try {

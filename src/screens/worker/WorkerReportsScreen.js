@@ -23,6 +23,7 @@ const WorkerReportsScreen = () => {
 
   const role = profile?.role || null;
   const isAdmin = role === "admin";
+  const isStaff = role === "staff";
 
   const fetchReports = useCallback(async (isPullRefresh = false) => {
     if (!user?.uid) {
@@ -67,7 +68,7 @@ const WorkerReportsScreen = () => {
 
   if (!role) return null;
 
-  if (isAdmin) {
+  if (isAdmin || isStaff) {
     return (
       <ScreenContainer>
         <View style={styles.centerWrap}>

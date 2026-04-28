@@ -75,6 +75,17 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: cd android && ./gradlew assembleRelease
 
+      - name: Normalize APK Filename
+        run: |
+          APK_DIR="android/app/build/outputs/apk/release"
+          APK_PATH=$(find "$APK_DIR" -maxdepth 1 -type f -name "*release*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "No release APK found in $APK_DIR"
+            exit 1
+          fi
+          cp "$APK_PATH" "$APK_DIR/efficiency-calc.apk"
+          ls -lh "$APK_DIR"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

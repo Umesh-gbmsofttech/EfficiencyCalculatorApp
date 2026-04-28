@@ -37,7 +37,14 @@ const AdminReportsScreen = () => {
   const [editForm, setEditForm] = useState({
     workingHours: "",
     outputProduced: "",
-    downtime: ""
+    downtime: "",
+    partName: "",
+    operationCode: "",
+    cycleTime: "",
+    plannedQty: "",
+    actualQty: "",
+    rejectedQty: "",
+    breakdownReason: ""
   });
   const isAdmin = profile?.role === "admin";
   const role = profile?.role || null;
@@ -97,7 +104,14 @@ const AdminReportsScreen = () => {
     setEditForm({
       workingHours: String(item.workingHours ?? ""),
       outputProduced: String(item.outputProduced ?? ""),
-      downtime: String(item.downtime ?? 0)
+      downtime: String(item.downtime ?? 0),
+      partName: String(item.partName ?? ""),
+      operationCode: String(item.operationCode ?? ""),
+      cycleTime: String(item.cycleTime ?? ""),
+      plannedQty: String(item.plannedQty ?? ""),
+      actualQty: String(item.actualQty ?? item.outputProduced ?? ""),
+      rejectedQty: String(item.rejectedQty ?? 0),
+      breakdownReason: String(item.breakdownReason ?? "")
     });
     setEditVisible(true);
   };
@@ -108,6 +122,10 @@ const AdminReportsScreen = () => {
       const workingHours = Number(editForm.workingHours);
       const outputProduced = Number(editForm.outputProduced);
       const downtime = Number(editForm.downtime);
+      const cycleTime = Number(editForm.cycleTime || 0);
+      const plannedQty = Number(editForm.plannedQty || 0);
+      const actualQty = Number(editForm.actualQty || outputProduced);
+      const rejectedQty = Number(editForm.rejectedQty || 0);
       if (Number.isNaN(workingHours) || Number.isNaN(outputProduced) || Number.isNaN(downtime)) {
         showSnackbar("Enter valid numeric values.", "warning");
         return;
@@ -127,8 +145,16 @@ const AdminReportsScreen = () => {
         workingHours,
         outputProduced,
         downtime,
+        machineDowntime: downtime,
         expectedOutput,
-        efficiency
+        efficiency,
+        partName: editForm.partName,
+        operationCode: editForm.operationCode,
+        cycleTime,
+        plannedQty,
+        actualQty,
+        rejectedQty,
+        breakdownReason: editForm.breakdownReason
       });
       showSnackbar("Report updated", "success");
       setEditVisible(false);
@@ -224,6 +250,51 @@ const AdminReportsScreen = () => {
               keyboardType="numeric"
               value={editForm.downtime}
               onChangeText={(value) => setEditForm((prev) => ({ ...prev, downtime: value }))}
+            />
+            <AnimatedInput
+              label="Part Name"
+              value={editForm.partName}
+              onChangeText={(value) => setEditForm((prev) => ({ ...prev, partName: value }))}
+              style={styles.field}
+            />
+            <AnimatedInput
+              label="Operation Code"
+              value={editForm.operationCode}
+              onChangeText={(value) => setEditForm((prev) => ({ ...prev, operationCode: value }))}
+              style={styles.field}
+            />
+            <AnimatedInput
+              label="Cycle Time"
+              keyboardType="numeric"
+              value={editForm.cycleTime}
+              onChangeText={(value) => setEditForm((prev) => ({ ...prev, cycleTime: value }))}
+              style={styles.field}
+            />
+            <AnimatedInput
+              label="Planned Qty"
+              keyboardType="numeric"
+              value={editForm.plannedQty}
+              onChangeText={(value) => setEditForm((prev) => ({ ...prev, plannedQty: value }))}
+              style={styles.field}
+            />
+            <AnimatedInput
+              label="Actual Qty"
+              keyboardType="numeric"
+              value={editForm.actualQty}
+              onChangeText={(value) => setEditForm((prev) => ({ ...prev, actualQty: value }))}
+              style={styles.field}
+            />
+            <AnimatedInput
+              label="Rejected Qty"
+              keyboardType="numeric"
+              value={editForm.rejectedQty}
+              onChangeText={(value) => setEditForm((prev) => ({ ...prev, rejectedQty: value }))}
+              style={styles.field}
+            />
+            <AnimatedInput
+              label="Breakdown Reason"
+              value={editForm.breakdownReason}
+              onChangeText={(value) => setEditForm((prev) => ({ ...prev, breakdownReason: value }))}
             />
           </Dialog.Content>
           <Dialog.Actions>

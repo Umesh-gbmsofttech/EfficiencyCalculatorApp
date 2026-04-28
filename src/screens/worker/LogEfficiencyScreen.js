@@ -165,6 +165,10 @@ const LogEfficiencyScreen = () => {
       <Button
         mode="outlined"
         onPress={() => {
+          if (role === "staff") {
+            showSnackbar("Staff can only mark attendance.", "warning");
+            return;
+          }
           if (!isInsideRadius) {
             showSnackbar(`You must be within ${companyLocation.radiusMeters} meters of company to mark attendance`, "warning");
             return;
@@ -172,7 +176,7 @@ const LogEfficiencyScreen = () => {
           setPickerVisible(true);
         }}
         style={styles.machineBtn}
-        disabled={!isInsideRadius}
+        disabled={!isInsideRadius || role === "staff"}
       >
         {selectedMachine ? `Machine: ${selectedMachine.name}` : "Select Machine"}
       </Button>

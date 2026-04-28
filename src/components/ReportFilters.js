@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { Button, Menu, useTheme } from "react-native-paper";
 import AnimatedInput from "./AnimatedInput";
 import GlassCard from "./GlassCard";
-import { applyDatePreset } from "../utils/timeRange";
+import GlobalCalendar from "./GlobalCalendar";
 
 const ReportFilters = ({
   workers,
@@ -86,33 +86,12 @@ const ReportFilters = ({
         </Menu>
       </View>
 
-      <AnimatedInput
-        label="Date From (YYYY-MM-DD)"
-        value={filters.dateFrom}
-        onChangeText={(v) => onChange("dateFrom", v)}
-        style={styles.gap}
+      <GlobalCalendar
+        onRangeChange={(next) => {
+          onChange("dateFrom", next.dateFrom);
+          onChange("dateTo", next.dateTo);
+        }}
       />
-      <AnimatedInput
-        label="Date To (YYYY-MM-DD)"
-        value={filters.dateTo}
-        onChangeText={(v) => onChange("dateTo", v)}
-      />
-      <View style={styles.presetRow}>
-        {["day", "week", "month", "year"].map((preset) => (
-          <Button
-            key={preset}
-            mode="text"
-            compact
-            onPress={() => {
-              const next = applyDatePreset(preset);
-              onChange("dateFrom", next.dateFrom);
-              onChange("dateTo", next.dateTo);
-            }}
-          >
-            {preset}
-          </Button>
-        ))}
-      </View>
     </GlassCard>
   );
 };
@@ -131,11 +110,6 @@ const styles = StyleSheet.create({
   },
   menuBtn: {
     borderRadius: 10
-  },
-  presetRow: {
-    marginTop: 2,
-    flexDirection: "row",
-    justifyContent: "space-between"
   }
 });
 

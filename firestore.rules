@@ -10,6 +10,10 @@ service cloud.firestore {
       return isSignedIn() &&
         get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == "admin";
     }
+    function isOperator() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == "operator";
+    }
 
     match /users/{userId} {
       allow read: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
@@ -32,7 +36,23 @@ service cloud.firestore {
 
     match /logs/{logId} {
       allow read, update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn();
+      allow create: if isAdmin() || (isOperator() && request.resource.data.userId == request.auth.uid);
+    }
+
+    match /attendance/{attendanceId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isAdmin() || (isSignedIn() && request.resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    match /salaryConfigs/{userId} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow write: if isAdmin();
+    }
+
+    match /salarySettlements/{docId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
     }
   }
 }

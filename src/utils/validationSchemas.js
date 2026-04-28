@@ -71,5 +71,21 @@ export const logSchema = yup.object({
     .number()
     .typeError("Must be a number")
     .min(0, "Cannot be negative")
-    .required("Downtime is required")
+    .required("Downtime is required"),
+  cycleTime: yup.number().typeError("Must be a number").min(0, "Cannot be negative").nullable(),
+  plannedQty: yup.number().typeError("Must be a number").min(0, "Cannot be negative").nullable(),
+  actualQty: yup.number().typeError("Must be a number").min(0, "Cannot be negative").nullable(),
+  rejectedQty: yup.number().typeError("Must be a number").min(0, "Cannot be negative").nullable()
+});
+
+export const attendanceSchema = yup.object({
+  shiftType: yup.string().oneOf(["day", "night"]).required("Shift is required")
+});
+
+export const salaryConfigSchema = yup.object({
+  salaryType: yup.string().oneOf(["daily", "weekly", "monthly"]).required("Salary type required"),
+  baseAmount: yup.number().typeError("Must be a number").min(0, "Cannot be negative").required("Base amount required"),
+  workingDaysPerMonth: yup.number().typeError("Must be a number").min(1).required(),
+  bonusDays: yup.number().typeError("Must be a number").min(0).required(),
+  penaltyDays: yup.number().typeError("Must be a number").min(0).required()
 });

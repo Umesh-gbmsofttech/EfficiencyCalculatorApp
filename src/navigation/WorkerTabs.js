@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import WorkerDashboardScreen from "../screens/worker/WorkerDashboardScreen";
 import LogEfficiencyScreen from "../screens/worker/LogEfficiencyScreen";
 import WorkerReportsScreen from "../screens/worker/WorkerReportsScreen";
+import WorkerAttendanceScreen from "../screens/worker/WorkerAttendanceScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import AnimatedTabBar from "../components/AnimatedTabBar";
 import Header from "../components/Header";
@@ -11,6 +12,7 @@ import Header from "../components/Header";
 const Tab = createBottomTabNavigator();
 const TAB_ICONS = {
   Dashboard: "view-dashboard-outline",
+  Attendance: "calendar-check-outline",
   Log: "clipboard-check-outline",
   Reports: "chart-box-outline",
   Profile: "account-circle-outline"
@@ -30,6 +32,7 @@ const WorkerTabs = () => (
     tabBar={(props) => <AnimatedTabBar {...props} />}
   >
     <Tab.Screen name="Dashboard" component={WorkerDashboardScreen} />
+    <Tab.Screen name="Attendance" component={WorkerAttendanceScreen} />
     <Tab.Screen name="Log" component={LogEfficiencyScreen} />
     <Tab.Screen name="Reports" component={WorkerReportsScreen} />
     <Tab.Screen name="Profile" component={ProfileScreen} />

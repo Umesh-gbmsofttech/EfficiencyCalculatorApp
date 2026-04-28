@@ -22,6 +22,7 @@ import { COLLECTIONS } from "../../constants/collections";
 import { calculateEfficiency, calculateExpectedOutput } from "../../utils/calculations";
 import { toDateRange } from "../../utils/formatters";
 import { getShiftDate } from "../../utils/shift";
+import { getAttendanceForUserShift } from "./attendance";
 
 export const normalizeImageUrl = (url = "") => {
   const trimmed = String(url).trim();
@@ -173,6 +174,13 @@ export const createEfficiencyLog = async ({
   const efficiency = calculateEfficiency(outputProduced, expectedOutput);
 
   const timestamp = Timestamp.now();
+  const shiftDate = getShiftDate(timestamp);
+  const attendance = await getAttendanceForUserShift({ userId: worker.uid, shiftDate });
+  if (!attendance) {
+    const err = new Error("Attendance required before submitting production logs.");
+    err.code = "failed-precondition";
+    throw err;
+  }
   const actual = actualQty === null ? Number(outputProduced) : Number(actualQty);
   await addDoc(collection(db, COLLECTIONS.LOGS), {
     machineId: machine.id,
@@ -193,10 +201,11 @@ export const createEfficiencyLog = async ({
     breakdownReason: String(breakdownReason || "").trim(),
     operatorName: worker.fullName,
     downtime: Number(downtime),
+    machineDowntime: Number(downtime),
     expectedOutput,
     efficiency,
     timestamp,
-    shiftDate: getShiftDate(timestamp),
+    shiftDate,
     createdAt: serverTimestamp()
   });
 
@@ -387,8 +396,16 @@ export const updateEfficiencyLog = async (id, data) => {
     workingHours: Number(data.workingHours),
     outputProduced: Number(data.outputProduced),
     downtime: Number(data.downtime),
+    machineDowntime: Number(data.machineDowntime ?? data.downtime),
     expectedOutput: Number(data.expectedOutput),
     efficiency: Number(data.efficiency),
+    partName: String(data.partName ?? ""),
+    operationCode: String(data.operationCode ?? ""),
+    cycleTime: Number(data.cycleTime ?? 0),
+    plannedQty: Number(data.plannedQty ?? 0),
+    actualQty: Number(data.actualQty ?? data.outputProduced),
+    rejectedQty: Number(data.rejectedQty ?? 0),
+    breakdownReason: String(data.breakdownReason ?? ""),
     updatedAt: serverTimestamp()
   });
 };
