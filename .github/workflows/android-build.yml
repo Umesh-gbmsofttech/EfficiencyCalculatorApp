@@ -86,7 +86,7 @@ jobs:
         run: rm -rf android
 
       - name: Generate Android Native Project
-        run: npx expo prebuild --platform android --clean --non-interactive
+        run: npx expo prebuild --platform android --clean
 
       - name: Verify Expo Modules Wiring
         run: |
@@ -97,10 +97,11 @@ jobs:
       - name: Patch settings.gradle for expo-modules-core (CI safeguard)
         run: |
           SETTINGS_FILE="android/settings.gradle"
-          MODULE_DIR=$(node -e "try { const p=require.resolve('expo-modules-core/package.json'); const path=require('path'); console.log(path.join(path.dirname(p),'android')); } catch(e){ console.log(''); }")
+          MODULE_DIR=$(node -e "const path=require('path'); try { const p=require.resolve('expo-modules-core/package.json', { paths:[process.cwd()] }); console.log(path.join(path.dirname(p),'android')); } catch(e) { try { const expoPkg=require.resolve('expo/package.json', { paths:[process.cwd()] }); console.log(path.join(path.dirname(expoPkg),'node_modules','expo-modules-core','android')); } catch(e2) { console.log(''); } }")
+          echo "Resolved expo-modules-core android dir: $MODULE_DIR"
           if [ -n "$MODULE_DIR" ] && [ -d "$MODULE_DIR" ] && ! grep -q "include ':expo-modules-core'" "$SETTINGS_FILE"; then
             echo "include ':expo-modules-core'" >> "$SETTINGS_FILE"
-            echo "project(':expo-modules-core').projectDir = new File(rootProject.projectDir, '../node_modules/expo-modules-core/android')" >> "$SETTINGS_FILE"
+            echo "project(':expo-modules-core').projectDir = new File('$MODULE_DIR')" >> "$SETTINGS_FILE"
           else
             echo "expo-modules-core folder not directly resolvable; skipping manual include patch."
           fi
