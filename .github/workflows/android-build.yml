@@ -21,6 +21,11 @@ jobs:
       EXPO_PUBLIC_COMPANY_LATITUDE: ${{ secrets.EXPO_PUBLIC_COMPANY_LATITUDE }}
       EXPO_PUBLIC_COMPANY_LONGITUDE: ${{ secrets.EXPO_PUBLIC_COMPANY_LONGITUDE }}
       EXPO_PUBLIC_COMPANY_RADIUS_METERS: ${{ secrets.EXPO_PUBLIC_COMPANY_RADIUS_METERS }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
 
     steps:
       - name: Checkout
@@ -82,13 +87,6 @@ jobs:
 
       - name: Place Keystore
         run: mv android-upload-key.keystore android/app/keystore.jks
-
-      - name: Configure Signing
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: node scripts/configure-android-signing.js
 
       - name: Make Gradle Wrapper Executable
         run: chmod +x android/gradlew
