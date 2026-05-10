@@ -6,6 +6,8 @@ Role-based worker–machine efficiency tracking app built with Expo React Native
 # install dependencies
 npm install
 
+npx expo-doctor --verbose
+
 # start Expo dev server
 npm run start
 
