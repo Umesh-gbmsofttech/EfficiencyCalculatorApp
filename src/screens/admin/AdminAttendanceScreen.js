@@ -1,16 +1,19 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Button, Dialog, Portal, Switch, useTheme } from "react-native-paper";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ScreenContainer from "../../components/ScreenContainer";
 import GlassCard from "../../components/GlassCard";
 import GlobalCalendar from "../../components/GlobalCalendar";
+import EmptyState from "../../components/EmptyState";
 import useUIStore from "../../store/uiStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
-import { getAttendanceDateMap, getAttendanceRecords, updateAttendanceRecord } from "../../services/firebase/attendance";
+import attendanceService from "../../services/firebase/attendanceService";
 
 const AdminAttendanceScreen = () => {
   const { showSnackbar } = useUIStore();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [records, setRecords] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [range, setRange] = useState({ dateFrom: "", dateTo: "" });
@@ -20,7 +23,7 @@ const AdminAttendanceScreen = () => {
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const data = await getAttendanceRecords({ role: "admin", from: range.dateFrom, to: range.dateTo });
+      const data = await attendanceService.list({ role: "admin", from: range.dateFrom, to: range.dateTo });
       setRecords(data);
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
@@ -31,12 +34,13 @@ const AdminAttendanceScreen = () => {
 
   React.useEffect(() => { load(); }, [load]);
 
-  const marks = useMemo(() => getAttendanceDateMap(records), [records]);
+  const marks = useMemo(() => attendanceService.mapDates(records), [records]);
+  const listBottomPadding = insets.bottom + 104;
 
   const onSave = async () => {
     if (!editing) return;
     try {
-      await updateAttendanceRecord(editing.id, { isPresent: present });
+      await attendanceService.update(editing.id, { isPresent: present });
       showSnackbar("Attendance updated", "success");
       setEditing(null);
       await load();
@@ -52,6 +56,9 @@ const AdminAttendanceScreen = () => {
         data={records}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
+        contentContainerStyle={styles.listContent}
+        ListFooterComponent={<View style={{ height: listBottomPadding }} />}
+        ListEmptyComponent={!refreshing ? <EmptyState text="No attendance records." /> : null}
         renderItem={({ item }) => (
           <GlassCard>
             <Text style={[styles.name, { color: theme.colors.onSurface }]}>{item.userName}</Text>
@@ -83,6 +90,7 @@ const AdminAttendanceScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  listContent: { paddingBottom: 8 },
   name: { fontSize: 16, fontWeight: "600", marginBottom: 4 },
   meta: { fontSize: 13, marginBottom: 2 },
   dialog: { borderRadius: 14 },

@@ -12,36 +12,39 @@ import ScreenContainer from "../../components/ScreenContainer";
 import { machineSchema } from "../../utils/validationSchemas";
 import useUIStore from "../../store/uiStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
-import {
-  createMachine,
-  editMachine,
-  getMachines,
-  normalizeImageUrl,
-  removeMachine
-} from "../../services/firebase/firestore";
+import { normalizeImageUrl } from "../../services/firebase/firestore";
+import machineService from "../../services/firebase/machineService";
+import partService from "../../services/firebase/partService";
+import useAuthStore from "../../store/authStore";
 
 const ManageMachinesScreen = () => {
+  const { user } = useAuthStore();
   const [machines, setMachines] = useState([]);
   const [search, setSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [visible, setVisible] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [parts, setParts] = useState([]);
+  const [newPart, setNewPart] = useState({ partName: "", operationCode: "" });
+  const [newPartsDraft, setNewPartsDraft] = useState([]);
   const { showSnackbar } = useUIStore();
   const theme = useTheme();
 
-  const { control, reset, handleSubmit, watch, setValue } = useForm({
+  const { control, reset, handleSubmit, watch, setValue, formState: { errors } } = useForm({
     resolver: yupResolver(machineSchema),
-    defaultValues: { name: "", code: "", expectedOutputPerHour: "", imageUrl: "" }
+    defaultValues: { name: "", code: "", expectedOutputPerHour: "", imageUrl: "", partIds: [] }
   });
   const selectedImageUrl = watch("imageUrl");
+  const selectedPartIds = watch("partIds") || [];
   const previewImageUrl = normalizeImageUrl(selectedImageUrl);
   const isEditing = Boolean(editing);
 
   const loadMachines = useCallback(async () => {
     try {
-      const response = await getMachines();
+      const [response, partList] = await Promise.all([machineService.list(), partService.list()]);
       setMachines(response);
+      setParts(partList);
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
     }
@@ -64,17 +67,38 @@ const ManageMachinesScreen = () => {
   const onSave = async (values) => {
     try {
       setSaving(true);
-      const payload = { ...values, imageUrl: normalizeImageUrl(values.imageUrl) };
+      const createdPartIds = [];
+      for (const draft of newPartsDraft) {
+        const partId = await partService.create({
+          partName: draft.partName,
+          partNumber: "",
+          operationCode: draft.operationCode,
+          actorUid: user?.uid || ""
+        });
+        if (partId) createdPartIds.push(partId);
+      }
+      const payload = {
+        ...values,
+        partIds: Array.from(new Set([...(values.partIds || []), ...createdPartIds])),
+        imageUrl: normalizeImageUrl(values.imageUrl),
+        actorUid: user?.uid || ""
+      };
+      if (!payload.partIds.length) {
+        showSnackbar("Add at least one part for this machine.", "warning");
+        return;
+      }
       if (editing) {
-        await editMachine(editing.id, payload);
+        await machineService.update(editing.id, payload);
         showSnackbar("Machine updated", "success");
       } else {
-        await createMachine(payload);
+        await machineService.create(payload);
         showSnackbar("Machine created", "success");
       }
       setVisible(false);
       setEditing(null);
-      reset({ name: "", code: "", expectedOutputPerHour: "", imageUrl: "" });
+      setNewPart({ partName: "", operationCode: "" });
+      setNewPartsDraft([]);
+      reset({ name: "", code: "", expectedOutputPerHour: "", imageUrl: "", partIds: [] });
       await loadMachines();
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
@@ -85,7 +109,7 @@ const ManageMachinesScreen = () => {
 
   const onDelete = async (id) => {
     try {
-      await removeMachine(id);
+      await machineService.remove(id);
       showSnackbar("Machine deleted", "success");
       await loadMachines();
     } catch (error) {
@@ -130,11 +154,14 @@ const ManageMachinesScreen = () => {
                 style={styles.actionBtn}
                 onPress={() => {
                   setEditing(item);
+                  setNewPart({ partName: "", operationCode: "" });
+                  setNewPartsDraft([]);
                   reset({
                     name: item.name,
                     code: item.code,
                     expectedOutputPerHour: String(item.expectedOutputPerHour),
-                    imageUrl: normalizeImageUrl(item.imageUrl || "")
+                    imageUrl: normalizeImageUrl(item.imageUrl || ""),
+                    partIds: Array.isArray(item.partIds) ? item.partIds : item.partId ? [item.partId] : []
                   });
                   setVisible(true);
                 }}
@@ -161,6 +188,74 @@ const ManageMachinesScreen = () => {
             >
               <FormTextField control={control} name="name" label="Machine Name" autoCapitalize="words" />
               <FormTextField control={control} name="code" label="Machine Code" autoCapitalize="characters" />
+              <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>Add New Parts (Admin)</Text>
+              <AnimatedInput
+                label="Part Name"
+                value={newPart.partName}
+                onChangeText={(value) => setNewPart((prev) => ({ ...prev, partName: value }))}
+                style={styles.partSearch}
+              />
+              <AnimatedInput
+                label="Operation Code (optional)"
+                value={newPart.operationCode}
+                onChangeText={(value) => setNewPart((prev) => ({ ...prev, operationCode: value }))}
+                style={styles.partSearch}
+              />
+              <Button
+                mode="contained-tonal"
+                style={styles.partBtn}
+                onPress={() => {
+                  const partName = String(newPart.partName || "").trim();
+                  const operationCode = String(newPart.operationCode || "").trim();
+                  if (!partName) {
+                    showSnackbar("Part name is required to add part.", "warning");
+                    return;
+                  }
+                  setNewPartsDraft((prev) => [...prev, { id: `${Date.now()}_${prev.length}`, partName, operationCode }]);
+                  setNewPart({ partName: "", operationCode: "" });
+                }}
+              >
+                Add Part To Machine
+              </Button>
+              {newPartsDraft.length ? (
+                <View style={styles.chipsWrap}>
+                  {newPartsDraft.map((part) => (
+                    <Button
+                      key={part.id}
+                      compact
+                      mode="outlined"
+                      onPress={() => setNewPartsDraft((prev) => prev.filter((item) => item.id !== part.id))}
+                    >
+                      {part.partName} x
+                    </Button>
+                  ))}
+                </View>
+              ) : null}
+              {errors.partIds?.message ? (
+                <Text style={[styles.errorText, { color: theme.custom.colors.error }]}>{errors.partIds.message}</Text>
+              ) : null}
+              {selectedPartIds.length ? (
+                <View style={styles.chipsWrap}>
+                  {parts
+                    .filter((part) => selectedPartIds.includes(part.id))
+                    .map((part) => (
+                      <Button
+                        key={part.id}
+                        compact
+                        mode="outlined"
+                        onPress={() =>
+                          setValue(
+                            "partIds",
+                            selectedPartIds.filter((id) => id !== part.id),
+                            { shouldValidate: true }
+                          )
+                        }
+                      >
+                        {part.partName} x
+                      </Button>
+                    ))}
+                </View>
+              ) : null}
               <FormTextField control={control} name="imageUrl" label="Machine Image URL" keyboardType="url" />
               <View style={styles.urlActions}>
                 <Button
@@ -197,7 +292,15 @@ const ManageMachinesScreen = () => {
             </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setVisible(false)}>Cancel</Button>
+            <Button
+              onPress={() => {
+                setVisible(false);
+                setNewPart({ partName: "", operationCode: "" });
+                setNewPartsDraft([]);
+              }}
+            >
+              Cancel
+            </Button>
             <Button onPress={handleSubmit(onSave)} loading={saving} disabled={saving}>
               {isEditing ? "Update" : "Save"}
             </Button>
@@ -211,7 +314,9 @@ const ManageMachinesScreen = () => {
         color="#FFFFFF"
         onPress={() => {
           setEditing(null);
-          reset({ name: "", code: "", expectedOutputPerHour: "", imageUrl: "" });
+          reset({ name: "", code: "", expectedOutputPerHour: "", imageUrl: "", partIds: [] });
+          setNewPart({ partName: "", operationCode: "" });
+          setNewPartsDraft([]);
           setVisible(true);
         }}
       />
@@ -251,10 +356,12 @@ const styles = StyleSheet.create({
   actions: {
     marginTop: 8,
     flexDirection: "row",
-    justifyContent: "space-between"
+    gap: 8
   },
   actionBtn: {
-    borderRadius: 10
+    borderRadius: 10,
+    flex: 1,
+    marginTop: 2
   },
   formScroll: {
     maxHeight: 420
@@ -273,6 +380,29 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     flexDirection: "row",
     justifyContent: "space-between"
+  },
+  partBtn: {
+    marginBottom: 10,
+    borderRadius: 10
+  },
+  partSearch: {
+    marginBottom: 8
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 6
+  },
+  errorText: {
+    fontSize: 12,
+    marginTop: -4,
+    marginBottom: 6
+  },
+  chipsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 8
   },
   previewWrap: {
     width: 88,

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { RefreshControl, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { LineChart } from "react-native-chart-kit";
 import { useTheme } from "react-native-paper";
@@ -8,37 +8,40 @@ import StatCard from "../../components/StatCard";
 import GlassCard from "../../components/GlassCard";
 import RemoteImage from "../../components/RemoteImage";
 import ScreenContainer from "../../components/ScreenContainer";
-import { getDashboardStats, getEfficiencyTrend } from "../../services/firebase/firestore";
 import { formatPercent } from "../../utils/formatters";
 import useUIStore from "../../store/uiStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
+import { getRecentAttendance } from "../../services/firebase/attendance";
+import { getSalaryRecords } from "../../services/firebase/salary";
+import useDashboardData from "../../hooks/useDashboardData";
 
 const WorkerDashboardScreen = () => {
   const { user } = useAuthStore();
   const { showSnackbar } = useUIStore();
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const [stats, setStats] = useState({ workers: 0, machines: 0, logs: 0 });
-  const [trend, setTrend] = useState([]);
+  const { stats, trend, load: loadDashboard } = useDashboardData({ uid: user?.uid });
+  const [recentAttendance, setRecentAttendance] = useState([]);
+  const [latestSalary, setLatestSalary] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!user?.uid) return;
     try {
-      const [summary, trendData] = await Promise.all([
-        getDashboardStats(user.uid),
-        getEfficiencyTrend({ uid: user.uid })
+      const [dashboardResult, attendanceResult, salaryResult] = await Promise.allSettled([
+        loadDashboard(),
+        getRecentAttendance({ userId: user.uid, max: 4 }),
+        getSalaryRecords({ userId: user.uid, max: 1 })
       ]);
-      setStats(summary);
-      setTrend(trendData.slice(-7));
+      if (dashboardResult.status === "rejected" && !["failed-precondition", "permission-denied"].includes(String(dashboardResult.reason?.code || ""))) {
+        throw dashboardResult.reason;
+      }
+      setRecentAttendance(attendanceResult.status === "fulfilled" ? attendanceResult.value : []);
+      setLatestSalary(salaryResult.status === "fulfilled" ? salaryResult.value[0] || null : null);
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
     }
-  }, [showSnackbar, user?.uid]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  }, [loadDashboard, showSnackbar, user?.uid]);
 
   useFocusEffect(
     useCallback(() => {
@@ -87,6 +90,7 @@ const WorkerDashboardScreen = () => {
     >
       <StatCard title="My Logs" value={stats.logs} />
       <StatCard title="Average Efficiency" value={formatPercent(averageEfficiency)} />
+      <StatCard title="Latest Salary" value={latestSalary ? `Rs ${Number(latestSalary.finalSalary || 0).toFixed(0)}` : "Not available"} caption={latestSalary?.month || ""} />
 
       <GlassCard>
         <View style={styles.trendHeader}>
@@ -167,6 +171,21 @@ const WorkerDashboardScreen = () => {
             ))}
         </GlassCard>
       ) : null}
+      <GlassCard>
+        <Text style={[styles.heading, { color: theme.colors.onSurface }]}>Attendance Snapshot</Text>
+        {recentAttendance.length ? (
+          recentAttendance.map((item) => (
+            <View key={item.id} style={styles.attRow}>
+              <Text style={[styles.logTitle, { color: theme.colors.onSurface }]}>{item.shiftDate}</Text>
+              <Text style={[styles.logText, { color: theme.custom.colors.textMuted }]}>
+                {item.shiftType} | {item.totalHours || 0} hrs
+              </Text>
+            </View>
+          ))
+        ) : (
+          <Text style={[styles.logText, { color: theme.custom.colors.textMuted }]}>No attendance records yet.</Text>
+        )}
+      </GlassCard>
     </ScreenContainer>
   );
 };
@@ -243,6 +262,10 @@ const styles = StyleSheet.create({
   logText: {
     fontSize: 12,
     marginTop: 2
+  },
+  attRow: {
+    marginTop: 6,
+    paddingTop: 6
   }
 });
 

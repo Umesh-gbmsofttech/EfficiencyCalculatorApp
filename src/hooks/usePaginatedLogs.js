@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { getLogsPage } from "../services/firebase/firestore";
+import { useCallback, useEffect, useRef, useState } from "react";
+import logRepository from "../repositories/logRepository";
 import useUIStore from "../store/uiStore";
 import { mapErrorMessage } from "../utils/errorMapper";
+import { logInfo } from "../utils/logger";
 
 const usePaginatedLogs = ({ role, uid, filters, enabled = true }) => {
   const { showSnackbar } = useUIStore();
@@ -11,6 +12,7 @@ const usePaginatedLogs = ({ role, uid, filters, enabled = true }) => {
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const [filterKey, setFilterKey] = useState(JSON.stringify(filters || {}));
+  const requestRef = useRef(0);
 
   useEffect(() => {
     setFilterKey(JSON.stringify(filters || {}));
@@ -23,10 +25,13 @@ const usePaginatedLogs = ({ role, uid, filters, enabled = true }) => {
 
   const refresh = useCallback(async () => {
     if (!enabled) return;
+    requestRef.current += 1;
+    const reqId = requestRef.current;
     setRefreshing(true);
     try {
-      const response = await getLogsPage({ role, uid, filters, cursor: null });
-      console.info("[Logs] refresh", { uid: uid || "all", role, resultCount: response.records.length });
+      const response = await logRepository.getPage({ role, uid, filters, cursor: null });
+      logInfo("Logs", "refresh", { uid: uid || "all", role, resultCount: response.records.length });
+      if (reqId !== requestRef.current) return;
       setRecords(response.records);
       setCursor(response.cursor);
       setHasMore(response.hasMore);
@@ -45,8 +50,8 @@ const usePaginatedLogs = ({ role, uid, filters, enabled = true }) => {
     if (!enabled || loading || !hasMore) return;
     try {
       setLoading(true);
-      const response = await getLogsPage({ role, uid, filters, cursor });
-      console.info("[Logs] loadMore", { uid: uid || "all", role, resultCount: response.records.length });
+      const response = await logRepository.getPage({ role, uid, filters, cursor });
+      logInfo("Logs", "loadMore", { uid: uid || "all", role, resultCount: response.records.length });
       setRecords((prev) => [...prev, ...response.records]);
       setCursor(response.cursor);
       setHasMore(response.hasMore);
@@ -66,10 +71,12 @@ const usePaginatedLogs = ({ role, uid, filters, enabled = true }) => {
     let mounted = true;
     const loadInitial = async () => {
       try {
+        requestRef.current += 1;
+        const reqId = requestRef.current;
         setLoading(true);
-        const response = await getLogsPage({ role, uid, filters, cursor: null });
-        console.info("[Logs] loadInitial", { uid: uid || "all", role, resultCount: response.records.length });
-        if (!mounted) return;
+        const response = await logRepository.getPage({ role, uid, filters, cursor: null });
+        logInfo("Logs", "loadInitial", { uid: uid || "all", role, resultCount: response.records.length });
+        if (!mounted || reqId !== requestRef.current) return;
         setRecords(response.records);
         setCursor(response.cursor);
         setHasMore(response.hasMore);

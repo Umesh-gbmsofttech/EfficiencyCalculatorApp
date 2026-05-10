@@ -23,6 +23,10 @@ import { calculateEfficiency, calculateExpectedOutput } from "../../utils/calcul
 import { toDateRange } from "../../utils/formatters";
 import { getShiftDate } from "../../utils/shift";
 import { getAttendanceForUserShift } from "./attendance";
+import { getShiftType } from "../../utils/shift";
+import { hasAccess } from "../../utils/access";
+import { logInfo } from "../../utils/logger";
+import { createAuditLog } from "./auditService";
 
 export const normalizeImageUrl = (url = "") => {
   const trimmed = String(url).trim();
@@ -46,22 +50,108 @@ export const getUserRole = async (uid) => {
   return snap.exists() ? snap.data() : null;
 };
 
+export const getPartsMaster = async () => {
+  const normalized = (snap) =>
+    snap.docs
+      .map((d) => ({ id: d.id, ...d.data(), active: d.data().active ?? d.data().isActive ?? true }))
+      .filter((item) => item.active !== false && item.isActive !== false);
+
+  const [partsResult, legacyResult] = await Promise.allSettled([
+    getDocs(query(collection(db, COLLECTIONS.PARTS), orderBy("partName", "asc"))),
+    getDocs(query(collection(db, COLLECTIONS.PARTS_MASTER), orderBy("partName", "asc")))
+  ]);
+
+  const merged = new Map();
+  if (partsResult.status === "fulfilled") {
+    normalized(partsResult.value).forEach((part) => merged.set(part.id, part));
+  }
+  if (legacyResult.status === "fulfilled") {
+    normalized(legacyResult.value).forEach((part) => {
+      if (!merged.has(part.id)) merged.set(part.id, part);
+    });
+  }
+  return Array.from(merged.values()).sort((a, b) => String(a.partName || "").localeCompare(String(b.partName || "")));
+};
+
+export const createPartMaster = async (data) => {
+  const payload = {
+    partName: String(data.partName || "").trim(),
+    partNumber: String(data.partNumber || "").trim(),
+    operationCode: String(data.operationCode || "").trim(),
+    setupNumber: String(data.setupNumber || "").trim(),
+    cycleTime: Number(data.cycleTime || 0),
+    drawingNumber: String(data.drawingNumber || "").trim(),
+    customerName: String(data.customerName || "").trim(),
+    machineCompatibility: Array.isArray(data.machineCompatibility) ? data.machineCompatibility : [],
+    machineId: data.machineId || "",
+    isActive: data.isActive !== false,
+    active: data.active !== false,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  };
+  const ref = await addDoc(collection(db, COLLECTIONS.PARTS), payload);
+  if (data.actorUid) {
+    await createAuditLog({ action: "create", entityType: "part", entityId: ref.id, changedBy: data.actorUid, after: payload });
+  }
+  return ref.id;
+};
+
+export const updatePartMaster = async (id, data) => {
+  const ref = doc(db, COLLECTIONS.PARTS, id);
+  const beforeSnap = await getDoc(ref);
+  const payload = {
+    partName: String(data.partName || "").trim(),
+    partNumber: String(data.partNumber || "").trim(),
+    operationCode: String(data.operationCode || "").trim(),
+    setupNumber: String(data.setupNumber || "").trim(),
+    cycleTime: Number(data.cycleTime || 0),
+    drawingNumber: String(data.drawingNumber || "").trim(),
+    customerName: String(data.customerName || "").trim(),
+    machineCompatibility: Array.isArray(data.machineCompatibility) ? data.machineCompatibility : [],
+    machineId: data.machineId || "",
+    isActive: data.isActive !== false,
+    active: data.active !== false,
+    updatedAt: serverTimestamp()
+  };
+  await updateDoc(ref, payload);
+  if (data.actorUid) {
+    await createAuditLog({ action: "update", entityType: "part", entityId: id, changedBy: data.actorUid, before: beforeSnap.data() || null, after: payload });
+  }
+};
+
+export const removePartMaster = async (id, { force = false, actorUid = "" } = {}) => {
+  const [machineSnap, jobSnap, partSnap] = await Promise.all([
+    getDocs(query(collection(db, COLLECTIONS.MACHINES), where("partIds", "array-contains", id), limit(5))),
+    getDocs(query(collection(db, COLLECTIONS.JOBS), where("linkedPartId", "==", id), limit(5))),
+    getDoc(doc(db, COLLECTIONS.PARTS, id))
+  ]);
+  const hasDependencies = machineSnap.size > 0 || jobSnap.size > 0;
+  if (hasDependencies && !force) {
+    const err = new Error("Part is currently assigned to machines/jobs.");
+    err.code = "failed-precondition";
+    throw err;
+  }
+  await deleteDoc(doc(db, COLLECTIONS.PARTS, id));
+  if (actorUid) {
+    await createAuditLog({ action: "delete", entityType: "part", entityId: id, changedBy: actorUid, before: partSnap.data() || null, after: null });
+  }
+};
+
 export const getWorkers = async ({ role, uid } = {}) => {
   const normalizedRole = role === "worker" ? "operator" : role;
   const safeRole = normalizedRole || "admin";
-  console.log("[Workers] role:", safeRole);
-  if (safeRole === "admin") {
-    console.log("[Workers] query path:", "users (all)");
+  logInfo("Workers", "role", safeRole);
+  if (hasAccess(safeRole, ["admin"])) {
+    logInfo("Workers", "query path", "users (all)");
     const q = query(collection(db, COLLECTIONS.USERS), where("isActive", "==", true));
     const snap = await getDocs(q);
     return snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((worker) => worker.role !== "admin")
       .sort((a, b) => String(a.fullName || "").localeCompare(String(b.fullName || "")));
   }
 
   if (!uid) return [];
-  console.log("[Workers] query path:", `users (self:${uid})`);
+  logInfo("Workers", "query path", `users (self:${uid})`);
   const q = query(collection(db, COLLECTIONS.USERS), where("uid", "==", uid));
   const snap = await getDocs(q);
   return snap.docs
@@ -97,7 +187,7 @@ export const deleteWorker = async (id, { actorUid, actorRole } = {}) => {
     const roleDoc = await getUserRole(actorUid);
     resolvedRole = roleDoc?.role || null;
   }
-  if (resolvedRole !== "admin") {
+  if (!hasAccess(resolvedRole, ["admin"])) {
     const error = new Error("Only admins can delete workers.");
     error.code = "permission-denied";
     throw error;
@@ -118,20 +208,63 @@ export const deleteWorker = async (id, { actorUid, actorRole } = {}) => {
   }
 };
 
+export const repairMissingUsers = async () => {
+  const functions = getFunctions();
+  const callable = httpsCallable(functions, "repairMissingUsers");
+  const response = await callable({});
+  return response?.data || { repaired: [] };
+};
+
 export const getMachines = async () => {
   const q = query(collection(db, COLLECTIONS.MACHINES), orderBy("name", "asc"));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return snap.docs.map((d) => {
+    const data = d.data();
+    const partIds = Array.isArray(data.partIds)
+      ? data.partIds
+      : data.partId
+        ? [data.partId]
+        : [];
+    const jobIds = Array.isArray(data.jobIds) ? data.jobIds : data.jobId ? [data.jobId] : [];
+    return {
+      id: d.id,
+      ...data,
+      name: data.name || data.machineName || "",
+      code: data.code || data.machineCode || "",
+      machineName: data.machineName || data.name || "",
+      machineCode: data.machineCode || data.code || "",
+      active: data.active !== false,
+      schemaVersion: Number(data.schemaVersion || 1),
+      partIds,
+      jobIds
+    };
+  });
 };
 
 export const createMachine = async (data) => {
-  await addDoc(collection(db, COLLECTIONS.MACHINES), {
+  const partIds = Array.isArray(data.partIds)
+    ? data.partIds.filter(Boolean)
+    : data.partId
+      ? [data.partId]
+      : [];
+  const payload = {
     ...data,
+    machineName: String(data.name || data.machineName || "").trim(),
+    machineCode: String(data.code || data.machineCode || "").trim(),
+    partIds,
+    partId: partIds[0] || "",
+    jobIds: Array.isArray(data.jobIds) ? data.jobIds.filter(Boolean) : [],
+    active: data.active !== false,
+    schemaVersion: 3,
     imageUrl: normalizeImageUrl(data.imageUrl),
     expectedOutputPerHour: Number(data.expectedOutputPerHour),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
-  });
+  };
+  const ref = await addDoc(collection(db, COLLECTIONS.MACHINES), payload);
+  if (data.actorUid) {
+    await createAuditLog({ action: "create", entityType: "machine", entityId: ref.id, changedBy: data.actorUid, after: payload });
+  }
 };
 
 export const addMachine = async (data) => {
@@ -139,12 +272,48 @@ export const addMachine = async (data) => {
 };
 
 export const editMachine = async (id, data) => {
-  await updateDoc(doc(db, COLLECTIONS.MACHINES, id), {
+  const partIds = Array.isArray(data.partIds)
+    ? data.partIds.filter(Boolean)
+    : data.partId
+      ? [data.partId]
+      : [];
+  const ref = doc(db, COLLECTIONS.MACHINES, id);
+  const beforeSnap = await getDoc(ref);
+  const jobIds = Array.isArray(data.jobIds) ? data.jobIds.filter(Boolean) : [];
+  const payload = {
     ...data,
+    machineName: String(data.name || data.machineName || "").trim(),
+    machineCode: String(data.code || data.machineCode || "").trim(),
+    partIds,
+    partId: partIds[0] || "",
+    jobIds,
+    active: data.active !== false,
+    schemaVersion: 3,
     imageUrl: normalizeImageUrl(data.imageUrl),
     expectedOutputPerHour: Number(data.expectedOutputPerHour),
     updatedAt: serverTimestamp()
-  });
+  };
+  await updateDoc(ref, payload);
+  if (data.actorUid) {
+    const before = beforeSnap.data() || {};
+    const prevParts = Array.isArray(before.partIds) ? before.partIds : [];
+    const prevJobs = Array.isArray(before.jobIds) ? before.jobIds : [];
+    const addedParts = partIds.filter((idItem) => !prevParts.includes(idItem));
+    const removedParts = prevParts.filter((idItem) => !partIds.includes(idItem));
+    const addedJobs = jobIds.filter((idItem) => !prevJobs.includes(idItem));
+    const removedJobs = prevJobs.filter((idItem) => !jobIds.includes(idItem));
+    await createAuditLog({ action: "update", entityType: "machine", entityId: id, changedBy: data.actorUid, before: beforeSnap.data() || null, after: payload });
+    if (addedParts.length || removedParts.length || addedJobs.length || removedJobs.length) {
+      await createAuditLog({
+        action: "mapping-change",
+        entityType: "machine",
+        entityId: id,
+        changedBy: data.actorUid,
+        before: { partIds: prevParts, jobIds: prevJobs },
+        after: { partIds, jobIds, addedParts, removedParts, addedJobs, removedJobs }
+      });
+    }
+  }
 };
 
 export const removeMachine = async (id) => {
@@ -154,6 +323,9 @@ export const removeMachine = async (id) => {
 export const createEfficiencyLog = async ({
   machine,
   worker,
+  actorRole,
+  part,
+  job,
   workingHours,
   outputProduced,
   downtime,
@@ -165,6 +337,12 @@ export const createEfficiencyLog = async ({
   rejectedQty = 0,
   breakdownReason = ""
 }) => {
+  const normalizedRole = actorRole === "worker" ? "operator" : actorRole;
+  if (normalizedRole !== "operator" && normalizedRole !== "admin") {
+    const roleErr = new Error("Only operators can create production logs.");
+    roleErr.code = "permission-denied";
+    throw roleErr;
+  }
   if (!worker?.uid) {
     const err = new Error("Invalid log payload: userId is required.");
     err.code = "invalid-argument";
@@ -175,6 +353,7 @@ export const createEfficiencyLog = async ({
 
   const timestamp = Timestamp.now();
   const shiftDate = getShiftDate(timestamp);
+  const shiftType = getShiftType(timestamp);
   const attendance = await getAttendanceForUserShift({ userId: worker.uid, shiftDate });
   if (!attendance) {
     const err = new Error("Attendance required before submitting production logs.");
@@ -195,11 +374,16 @@ export const createEfficiencyLog = async ({
     actualQty: actual,
     plannedQty: Number(plannedQty || 0),
     rejectedQty: Number(rejectedQty || 0),
+    partId: part?.id || "",
+    jobId: job?.id || "",
+    jobName: String(job?.jobName || "").trim(),
+    jobCode: String(job?.jobCode || "").trim(),
     partName: String(partName || "").trim(),
     operationCode: String(operationCode || "").trim(),
     cycleTime: Number(cycleTime || 0),
     breakdownReason: String(breakdownReason || "").trim(),
     operatorName: worker.fullName,
+    shiftType,
     downtime: Number(downtime),
     machineDowntime: Number(downtime),
     expectedOutput,
@@ -231,29 +415,31 @@ export const getDashboardStats = async (params) => {
   const uid = typeof params === "string" ? params : params?.uid;
   const isWorkerScope = Boolean(uid);
 
+  const safeSize = (result) => (result.status === "fulfilled" ? result.value.size : 0);
+
   if (isWorkerScope) {
-    const [machinesSnap, logsSnap] = await Promise.all([
+    const [machinesSnap, logsSnap] = await Promise.allSettled([
       getDocs(query(collection(db, COLLECTIONS.MACHINES))),
       getDocs(query(collection(db, COLLECTIONS.LOGS), where("userId", "==", uid)))
     ]);
 
     return {
       workers: 0,
-      machines: machinesSnap.size,
-      logs: logsSnap.size
+      machines: safeSize(machinesSnap),
+      logs: safeSize(logsSnap)
     };
   }
 
-  const [workersSnap, machinesSnap, logsSnap] = await Promise.all([
+  const [workersSnap, machinesSnap, logsSnap] = await Promise.allSettled([
     getDocs(query(collection(db, COLLECTIONS.USERS))),
     getDocs(query(collection(db, COLLECTIONS.MACHINES))),
     getDocs(query(collection(db, COLLECTIONS.LOGS)))
   ]);
 
   return {
-    workers: workersSnap.size,
-    machines: machinesSnap.size,
-    logs: logsSnap.size
+    workers: safeSize(workersSnap),
+    machines: safeSize(machinesSnap),
+    logs: safeSize(logsSnap)
   };
 };
 
@@ -266,14 +452,20 @@ export const getEfficiencyTrend = async ({ uid, days = 7 }) => {
   try {
     const q = query(collection(db, COLLECTIONS.LOGS), ...constraints);
     const snap = await getDocs(q);
-    const records = snap.docs
+    let records = snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
       .filter((item) => {
         const date = item.timestamp?.toDate?.() || null;
         return date ? date >= since : false;
       })
       .reverse();
-    console.info("[Firestore] getEfficiencyTrend", { uid: uid || "all", role, resultCount: records.length });
+    if (!records.length && !uid) {
+      records = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .slice(0, 7)
+        .reverse();
+    }
+    logInfo("Firestore", "getEfficiencyTrend", { uid: uid || "all", role, resultCount: records.length });
     return records;
   } catch (error) {
     if (!isIndexOrRetryableError(error)) throw error;
@@ -281,7 +473,7 @@ export const getEfficiencyTrend = async ({ uid, days = 7 }) => {
     if (uid) fallbackConstraints.unshift(where("userId", "==", uid));
     const fallbackQuery = query(collection(db, COLLECTIONS.LOGS), ...fallbackConstraints);
     const fallbackSnap = await getDocs(fallbackQuery);
-    const records = fallbackSnap.docs
+    let records = fallbackSnap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
       .filter((item) => {
         const date = item.timestamp?.toDate?.() || null;
@@ -292,7 +484,13 @@ export const getEfficiencyTrend = async ({ uid, days = 7 }) => {
         const bDate = b.timestamp?.toDate?.()?.getTime?.() || 0;
         return aDate - bDate;
       });
-    console.info("[Firestore] getEfficiencyTrend fallback", { uid: uid || "all", role, resultCount: records.length });
+    if (!records.length && !uid) {
+      records = fallbackSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .slice(0, 7)
+        .reverse();
+    }
+    logInfo("Firestore", "getEfficiencyTrend fallback", { uid: uid || "all", role, resultCount: records.length });
     return records;
   }
 };
@@ -311,7 +509,7 @@ const applyLogFilters = ({ records, role, uid, filters }) => {
     const ts = item.timestamp?.toDate?.();
     if (!ts) return false;
     const ownerId = item.userId || item.workerId;
-    if (role !== "admin" && ownerId !== uid) return false;
+    if (!hasAccess(role, ["admin"]) && ownerId !== uid) return false;
     if (filters.workerId && ownerId !== filters.workerId) return false;
     if (filters.machineId && item.machineId !== filters.machineId) return false;
     if (!isSameOrAfter(ts, start) || !isSameOrBefore(ts, end)) return false;
@@ -321,7 +519,7 @@ const applyLogFilters = ({ records, role, uid, filters }) => {
 
 const buildPrimaryLogsQuery = ({ role, uid, filters = {}, cursor = null, pageSize = 12 }) => {
   const constraints = [];
-  if (role !== "admin") constraints.push(where("userId", "==", uid));
+  if (!hasAccess(role, ["admin"])) constraints.push(where("userId", "==", uid));
   if (filters.workerId) constraints.push(where("userId", "==", filters.workerId));
   if (filters.machineId) constraints.push(where("machineId", "==", filters.machineId));
   const start = toDateRange(filters.dateFrom);
@@ -339,7 +537,7 @@ const getFallbackLogsPage = async ({ role, uid, filters, cursor = null, pageSize
 
   let raw = [];
   let snapDocs = [];
-  if (role === "admin") {
+  if (hasAccess(role, ["admin"])) {
     const q = query(collection(db, COLLECTIONS.LOGS), ...baseConstraints);
     const snap = await getDocs(q);
     raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -362,7 +560,7 @@ const getFallbackLogsPage = async ({ role, uid, filters, cursor = null, pageSize
     .slice(0, pageSize);
   const lastId = filtered.length ? filtered[filtered.length - 1].id : null;
   const lastDoc = lastId ? snapDocs.find((d) => d.id === lastId) || null : null;
-  console.info("[Firestore] getLogsPage fallback", { uid: uid || "all", role, resultCount: filtered.length });
+  logInfo("Firestore", "getLogsPage fallback", { uid: uid || "all", role, resultCount: filtered.length });
 
   return {
     records: filtered,
@@ -377,7 +575,7 @@ export const getLogsPage = async ({ role, uid, filters = {}, cursor = null, page
     const q = buildPrimaryLogsQuery({ role: normalizedRole, uid, filters, cursor, pageSize });
     const snap = await getDocs(q);
     const records = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    console.info("[Firestore] getLogsPage", { uid: uid || "all", role: normalizedRole, resultCount: records.length });
+    logInfo("Firestore", "getLogsPage", { uid: uid || "all", role: normalizedRole, resultCount: records.length });
 
     return {
       records,
@@ -408,4 +606,8 @@ export const updateEfficiencyLog = async (id, data) => {
     breakdownReason: String(data.breakdownReason ?? ""),
     updatedAt: serverTimestamp()
   });
+};
+
+export const deleteEfficiencyLog = async (id) => {
+  await deleteDoc(doc(db, COLLECTIONS.LOGS, id));
 };

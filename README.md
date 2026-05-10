@@ -108,46 +108,72 @@ service cloud.firestore {
     }
 
     function getRole() {
-      return get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role;
+      return isSignedIn()
+        ? get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role
+        : null;
     }
 
     function isAdmin() {
-      return isSignedIn() && getRole() == "admin";
+      return getRole() == "admin";
     }
 
     function isOperator() {
-      return isSignedIn() && getRole() == "operator";
+      return getRole() == "operator";
     }
 
     function isStaff() {
-      return isSignedIn() && getRole() == "staff";
+      return getRole() == "staff";
     }
 
-    // ✅ USERS
+    // 🔥 GLOBAL ADMIN OVERRIDE
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // 👤 USERS
     match /users/{userId} {
-      allow read: if isAdmin(); 
+      allow read: if isAdmin();
       allow create: if isSignedIn() && request.auth.uid == userId;
       allow update, delete: if isAdmin() || request.auth.uid == userId;
     }
 
-    // ✅ ROLES (🔥 CRITICAL FIX)
+    // 🧩 ROLES
     match /roles/{userId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.auth.uid == userId; // 🔥 THIS FIXES YOUR ISSUE
+      allow create: if isSignedIn() && request.auth.uid == userId;
       allow update, delete: if isAdmin();
     }
 
-    // ✅ MACHINES
+    // ⚙️ MACHINES
     match /machines/{machineId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
-    // ✅ LOGS
+    // 🏭 PARTS MASTER (NEW)
+    match /parts_master/{partId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 📊 LOGS
     match /logs/{logId} {
-      allow create: if isOperator(); 
+      allow create: if isOperator();
       allow read: if isAdmin() || request.auth.uid == resource.data.userId;
       allow update, delete: if isAdmin() || request.auth.uid == resource.data.userId;
+    }
+
+    // 🕒 ATTENDANCE (NEW)
+    match /attendance/{attendanceId} {
+      allow create: if isSignedIn();
+      allow read: if isAdmin() || request.auth.uid == resource.data.userId;
+      allow update, delete: if isAdmin();
+    }
+
+    // 💰 SALARY (NEW)
+    match /salary_records/{recordId} {
+      allow read: if isAdmin() || request.auth.uid == resource.data.userId;
+      allow write: if isAdmin();
     }
   }
 }

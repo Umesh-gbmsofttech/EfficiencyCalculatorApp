@@ -8,7 +8,8 @@ const FormTextField = ({
   label,
   secureTextEntry = false,
   keyboardType = "default",
-  autoCapitalize = "none"
+  autoCapitalize = "none",
+  editable = true
 }) => (
   <Controller
     control={control}
@@ -22,6 +23,7 @@ const FormTextField = ({
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        editable={editable}
         error={error?.message}
       />
     )}

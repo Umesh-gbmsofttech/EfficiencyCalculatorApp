@@ -4,7 +4,7 @@
       "collectionGroup": "logs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "workerId", "order": "ASCENDING" },
+        { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "timestamp", "order": "DESCENDING" }
       ]
     },
@@ -20,9 +20,72 @@
       "collectionGroup": "logs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "workerId", "order": "ASCENDING" },
-        { "fieldPath": "machineId", "order": "ASCENDING" },
+        { "fieldPath": "shiftDate", "order": "ASCENDING" },
+        { "fieldPath": "userId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "logs",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "shiftDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "shiftDate", "order": "ASCENDING" },
+        { "fieldPath": "loginTime", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "linkedPartId", "order": "ASCENDING" },
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "jobName", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "compatibleMachineIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "active", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "machines",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "machineCode", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "parts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "partName", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "jobName", "order": "ASCENDING" }
       ]
     }
   ],

@@ -9,7 +9,7 @@ const firebaseErrorMap = {
   "auth/network-request-failed": "Network unavailable. Please try again.",
   "auth/operation-not-allowed": "Something went wrong. Please try again.",
   "auth/operation-not-supported-in-this-environment": "Something went wrong. Please try again.",
-  "permission-denied": "Access restricted.",
+  "permission-denied": "Permission denied.",
   unavailable: "Network unavailable. Please try again.",
   "failed-precondition": "Loading data, please wait..."
 };

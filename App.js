@@ -4,6 +4,8 @@ import { StyleSheet, Text, useColorScheme, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { Provider as PaperProvider } from "react-native-paper";
 import { StatusBar } from "expo-status-bar";
+import { useFonts } from "expo-font";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { createAppTheme, createNavigationTheme } from "./src/constants/theme";
 import RootNavigator from "./src/navigation/RootNavigator";
@@ -14,10 +16,18 @@ import useUIStore from "./src/store/uiStore";
 import { firebaseInitError, missingFirebaseEnv } from "./src/services/firebase";
 import { CompanyConfigProvider } from "./src/context/companyConfig";
 import { useCompanyConfig } from "./src/context/companyConfig";
+import { initLogger } from "./src/utils/logger";
 
 const LocationAccessGate = () => {
   const { showSnackbar } = useUIStore();
-  const { permissionStatus, servicesEnabled } = useCompanyConfig();
+  const { permissionStatus, servicesEnabled, requestLocationAccess } = useCompanyConfig();
+  const permissionDenied = permissionStatus !== "granted";
+
+  useEffect(() => {
+    if (permissionStatus === "undetermined") {
+      requestLocationAccess();
+    }
+  }, [permissionStatus, requestLocationAccess]);
 
   useEffect(() => {
     if (permissionStatus === "denied") {
@@ -31,10 +41,14 @@ const LocationAccessGate = () => {
     }
   }, [servicesEnabled, showSnackbar]);
 
+  if (permissionDenied) return null;
   return null;
 };
 
 export default function App() {
+  useEffect(() => {
+    initLogger();
+  }, []);
   useAuthBootstrap();
   const systemTheme = useColorScheme();
   const { online, themeMode } = useUIStore();
@@ -42,6 +56,7 @@ export default function App() {
   const appTheme = useMemo(() => createAppTheme(resolvedTheme), [resolvedTheme]);
   const navigationTheme = useMemo(() => createNavigationTheme(resolvedTheme), [resolvedTheme]);
   const showConfigError = Boolean(firebaseInitError);
+  const [fontsLoaded] = useFonts(MaterialCommunityIcons.font);
 
   if (showConfigError) {
     console.error("[FirebaseConfig] Missing EXPO_PUBLIC variables", missingFirebaseEnv);
@@ -55,6 +70,9 @@ export default function App() {
         </PaperProvider>
       </SafeAreaProvider>
     );
+  }
+  if (!fontsLoaded) {
+    return null;
   }
 
   return (

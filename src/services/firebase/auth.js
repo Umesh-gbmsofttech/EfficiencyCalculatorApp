@@ -15,11 +15,28 @@ import { doc, getDoc, serverTimestamp, setDoc, writeBatch } from "firebase/fires
 import { deleteApp, initializeApp } from "firebase/app";
 import { auth, db, firebaseConfig } from "./config";
 import { COLLECTIONS } from "../../constants/collections";
+import { DEFAULT_ROLE, isAdmin, normalizeRole } from "../../constants/roles";
 
-const normalizeRole = (value) => (value === "worker" ? "operator" : value);
+const wait = (ms) => new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 
-const ensureUserAndRoleDocuments = async ({ uid, email, fullName = "Worker", phoneNumber = "", role = "operator" }) => {
-  const safeRole = normalizeRole(role || "operator");
+const withRetries = async (fn, retries = 2) => {
+  let attempt = 0;
+  let lastError;
+  while (attempt <= retries) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      attempt += 1;
+      if (attempt > retries) break;
+      await wait(500 * attempt);
+    }
+  }
+  throw lastError;
+};
+
+const ensureUserAndRoleDocuments = async ({ uid, email, fullName = "Worker", phoneNumber = "", role = DEFAULT_ROLE }) => {
+  const safeRole = normalizeRole(role || DEFAULT_ROLE);
   const trimmedEmail = email.trim();
   const [userSnap, roleSnap] = await Promise.all([
     getDoc(doc(db, COLLECTIONS.USERS, uid)),
@@ -36,6 +53,65 @@ const ensureUserAndRoleDocuments = async ({ uid, email, fullName = "Worker", pho
 
   await recoverUserProfile(uid, trimmedEmail, { fullName, phoneNumber, role: safeRole });
   return { recovered: true };
+};
+
+export const bootstrapAuthUser = async (currentUser) => {
+  if (!currentUser?.uid) return null;
+  const uid = currentUser.uid;
+  const email = String(currentUser.email || "").trim();
+  const displayName = currentUser.displayName || "Worker";
+
+  const [userSnap, roleSnap] = await Promise.all([
+    getDoc(doc(db, COLLECTIONS.USERS, uid)),
+    getDoc(doc(db, COLLECTIONS.ROLES, uid))
+  ]);
+
+  const userData = userSnap.exists() ? userSnap.data() : null;
+  const roleFromUser = normalizeRole(userData?.role || DEFAULT_ROLE);
+  const roleFromRoleDoc = roleSnap.exists() ? normalizeRole(roleSnap.data()?.role) : null;
+  const resolvedRole = normalizeRole(roleFromRoleDoc || roleFromUser || DEFAULT_ROLE);
+
+  if (!userSnap.exists() || !roleSnap.exists()) {
+    await recoverUserProfile(uid, email, {
+      fullName: userData?.fullName || displayName,
+      phoneNumber: userData?.phoneNumber || "",
+      role: resolvedRole
+    });
+  }
+
+  const needsUserSync =
+    !userSnap.exists() ||
+    userData?.role !== resolvedRole ||
+    userData?.email !== email ||
+    !userData?.fullName;
+
+  if (needsUserSync) {
+    await withRetries(() =>
+      setDoc(
+        doc(db, COLLECTIONS.USERS, uid),
+        {
+          uid,
+          email,
+          fullName: userData?.fullName || displayName || "Worker",
+          phoneNumber: userData?.phoneNumber || "",
+          role: resolvedRole,
+          isActive: userData?.isActive !== false,
+          createdAt: userData?.createdAt || serverTimestamp(),
+          updatedAt: serverTimestamp()
+        },
+        { merge: true }
+      ), 2);
+  }
+
+  return {
+    uid,
+    email,
+    fullName: userData?.fullName || displayName || "Worker",
+    phoneNumber: userData?.phoneNumber || "",
+    role: resolvedRole,
+    isActive: userData?.isActive !== false,
+    isAdmin: isAdmin(resolvedRole)
+  };
 };
 
 export const subscribeToAuthState = (callback) => onAuthStateChanged(auth, callback);
@@ -88,7 +164,7 @@ export const signupUser = async ({ fullName, email, password, phoneNumber }) => 
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
-    await batch.commit();
+    await withRetries(() => batch.commit(), 3);
     return result.user;
   } catch (error) {
     console.error("[Auth] Signup Firestore write failed, rolling back Auth user", {
@@ -120,29 +196,31 @@ export const recoverUserProfile = async (uid, email, profileData = {}) => {
     .trim();
   const fullName = profileData.fullName || fallbackName || "Worker";
 
-  await setDoc(
+  await withRetries(() =>
+    setDoc(
     doc(db, COLLECTIONS.USERS, uid),
     {
       uid,
       email: email.trim(),
       fullName,
       phoneNumber: profileData.phoneNumber || "",
-      role: normalizeRole(profileData.role || "operator"),
+      role: normalizeRole(profileData.role || DEFAULT_ROLE),
       isActive: true,
       updatedAt: serverTimestamp()
     },
     { merge: true }
-  );
+    ), 2);
 
-  await setDoc(
+  await withRetries(() =>
+    setDoc(
     doc(db, COLLECTIONS.ROLES, uid),
     {
       uid,
-      role: normalizeRole(profileData.role || "operator"),
+      role: normalizeRole(profileData.role || DEFAULT_ROLE),
       updatedAt: serverTimestamp()
     },
     { merge: true }
-  );
+    ), 2);
 };
 
 export const adminCreateWorker = async ({ fullName, email, phoneNumber, password, role = "operator" }) => {
@@ -217,7 +295,7 @@ export const adminCreateWorker = async ({ fullName, email, phoneNumber, password
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
-      await batch.commit();
+      await withRetries(() => batch.commit(), 3);
       return { user: result.user, recovered };
     } catch (error) {
       console.error("[Auth] Admin worker Firestore write failed", {

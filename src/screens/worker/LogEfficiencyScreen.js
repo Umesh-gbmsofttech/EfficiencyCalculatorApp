@@ -7,7 +7,6 @@ import { useFocusEffect } from "@react-navigation/native";
 import FormTextField from "../../components/FormTextField";
 import useAuthStore from "../../store/authStore";
 import useUIStore from "../../store/uiStore";
-import { getMachines, createEfficiencyLog } from "../../services/firebase/firestore";
 import { logSchema } from "../../utils/validationSchemas";
 import { mapErrorMessage } from "../../utils/errorMapper";
 import { calculateEfficiency, calculateExpectedOutput } from "../../utils/calculations";
@@ -18,6 +17,11 @@ import PrimaryButton from "../../components/PrimaryButton";
 import RemoteImage from "../../components/RemoteImage";
 import { useCompanyConfig } from "../../context/companyConfig";
 import useGeoFence from "../../hooks/useGeoFence";
+import { hasAccess } from "../../utils/access";
+import machineService from "../../services/firebase/machineService";
+import partService from "../../services/firebase/partService";
+import logService from "../../services/firebase/logService";
+import jobService from "../../services/firebase/jobService";
 
 const LogEfficiencyScreen = () => {
   const { user, profile } = useAuthStore();
@@ -38,38 +42,46 @@ const LogEfficiencyScreen = () => {
   const { showSnackbar, online } = useUIStore();
   const theme = useTheme();
   const [machines, setMachines] = useState([]);
+  const [machineParts, setMachineParts] = useState([]);
+  const [machineJobs, setMachineJobs] = useState([]);
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [partPickerVisible, setPartPickerVisible] = useState(false);
+  const [jobPickerVisible, setJobPickerVisible] = useState(false);
+  const [loadingMaster, setLoadingMaster] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const { control, handleSubmit, setValue, watch, reset } = useForm({
     resolver: yupResolver(logSchema),
     defaultValues: {
       machineId: "",
+      partId: "",
+      jobId: "",
       workingHours: "",
       outputProduced: "",
       downtime: "0",
-      partName: "",
-      operationCode: "",
-      cycleTime: "",
-      plannedQty: "",
-      actualQty: "",
       rejectedQty: "0",
       breakdownReason: ""
     }
   });
 
   const selectedMachineId = watch("machineId");
+  const selectedPartId = watch("partId");
+  const selectedJobId = watch("jobId");
   const workingHours = Number(watch("workingHours") || 0);
   const outputProduced = Number(watch("outputProduced") || 0);
   const downtime = Number(watch("downtime") || 0);
   const role = profile?.role === "worker" ? "operator" : profile?.role;
+  const canSubmitLogs = hasAccess(role, ["operator"]);
 
   const loadMachines = React.useCallback(async () => {
     try {
-      const data = await getMachines();
-      setMachines(data);
+      setLoadingMaster(true);
+      const machinesData = await machineService.list();
+      setMachines(machinesData);
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
+    } finally {
+      setLoadingMaster(false);
     }
   }, [showSnackbar]);
 
@@ -87,6 +99,71 @@ const LogEfficiencyScreen = () => {
     () => machines.find((machine) => machine.id === selectedMachineId),
     [machines, selectedMachineId]
   );
+  const selectedPart = useMemo(() => machineParts.find((part) => part.id === selectedPartId), [machineParts, selectedPartId]);
+  const compatibleJobs = useMemo(() => {
+    if (!selectedPartId) return [];
+    const linked = machineJobs.filter((job) => job.linkedPartId === selectedPartId);
+    return linked.length ? linked : machineJobs;
+  }, [machineJobs, selectedPartId]);
+  const selectedJob = useMemo(() => compatibleJobs.find((job) => job.id === selectedJobId), [compatibleJobs, selectedJobId]);
+
+  useEffect(() => {
+    const loadMappedMaster = async () => {
+      if (!selectedMachine) {
+        setMachineParts([]);
+        setMachineJobs([]);
+        return;
+      }
+      setLoadingMaster(true);
+      try {
+        const hasMappedParts = Array.isArray(selectedMachine.partIds) && selectedMachine.partIds.length > 0;
+        const [partsResult, jobsResult] = await Promise.allSettled([
+          hasMappedParts ? partService.getByIds(selectedMachine.partIds || []) : partService.list(),
+          Array.isArray(selectedMachine.jobIds) && selectedMachine.jobIds.length
+            ? jobService.getByIds(selectedMachine.jobIds)
+            : jobService.list({ activeOnly: true })
+        ]);
+
+        let partsData = [];
+        if (partsResult.status === "fulfilled") {
+          partsData = partsResult.value || [];
+        }
+        if (!partsData.length) {
+          const fallbackParts = await partService.list();
+          partsData = fallbackParts || [];
+        }
+        setMachineParts(partsData);
+
+        if (jobsResult.status === "fulfilled") {
+          setMachineJobs(jobsResult.value || []);
+        } else {
+          setMachineJobs([]);
+        }
+      } catch (error) {
+        const code = String(error?.code || "");
+        if (!code.includes("failed-precondition") && !code.includes("permission-denied")) {
+          showSnackbar(mapErrorMessage(error), "error");
+        }
+      } finally {
+        setLoadingMaster(false);
+      }
+    };
+    loadMappedMaster();
+  }, [selectedMachine, showSnackbar]);
+
+  useEffect(() => {
+    if (!selectedMachineId) return;
+    if (machineParts.length === 1 && !selectedPartId) {
+      setValue("partId", machineParts[0].id, { shouldValidate: true });
+    }
+    if (selectedPartId && !machineParts.some((item) => item.id === selectedPartId)) {
+      setValue("partId", "", { shouldValidate: false });
+      setValue("jobId", "", { shouldValidate: false });
+    }
+    if (selectedPartId && selectedJobId && !compatibleJobs.some((item) => item.id === selectedJobId)) {
+      setValue("jobId", "", { shouldValidate: false });
+    }
+  }, [compatibleJobs, machineParts, selectedMachineId, selectedPartId, selectedJobId, setValue]);
 
   const expectedOutput = useMemo(() => {
     if (!selectedMachine) return 0;
@@ -120,36 +197,36 @@ const LogEfficiencyScreen = () => {
         showSnackbar(`You must be within ${companyLocation.radiusMeters} meters of company to mark attendance`, "error");
         return;
       }
-      if (role === "staff") {
-        showSnackbar("Staff can only mark attendance.", "warning");
+      if (!selectedPart) {
+        showSnackbar("Select part before submitting log.", "warning");
         return;
       }
       setSaving(true);
-      await createEfficiencyLog({
+      await logService.create({
         machine: selectedMachine,
+        part: selectedPart,
+        job: selectedJob || null,
+        actorRole: role,
         worker: { uid: user.uid, fullName: profile?.fullName || user?.displayName || "Worker" },
         workingHours: values.workingHours,
         outputProduced: values.outputProduced,
         downtime: values.downtime,
-        partName: values.partName,
-        operationCode: values.operationCode,
-        cycleTime: values.cycleTime,
-        plannedQty: values.plannedQty,
-        actualQty: values.actualQty,
+        partName: selectedPart.partName,
+        operationCode: selectedPart.operationCode,
+        cycleTime: selectedPart.cycleTime,
+        plannedQty: expectedOutput,
+        actualQty: values.outputProduced,
         rejectedQty: values.rejectedQty,
         breakdownReason: values.breakdownReason
       });
       showSnackbar("Efficiency log added", "success");
       reset({
         machineId: "",
+        partId: "",
+        jobId: "",
         workingHours: "",
         outputProduced: "",
         downtime: "0",
-        partName: "",
-        operationCode: "",
-        cycleTime: "",
-        plannedQty: "",
-        actualQty: "",
         rejectedQty: "0",
         breakdownReason: ""
       });
@@ -165,10 +242,6 @@ const LogEfficiencyScreen = () => {
       <Button
         mode="outlined"
         onPress={() => {
-          if (role === "staff") {
-            showSnackbar("Staff can only mark attendance.", "warning");
-            return;
-          }
           if (!isInsideRadius) {
             showSnackbar(`You must be within ${companyLocation.radiusMeters} meters of company to mark attendance`, "warning");
             return;
@@ -176,10 +249,29 @@ const LogEfficiencyScreen = () => {
           setPickerVisible(true);
         }}
         style={styles.machineBtn}
-        disabled={!isInsideRadius || role === "staff"}
+        disabled={!isInsideRadius || !canSubmitLogs}
       >
         {selectedMachine ? `Machine: ${selectedMachine.name}` : "Select Machine"}
       </Button>
+      <Button
+        mode="outlined"
+        onPress={() => setPartPickerVisible(true)}
+        style={styles.machineBtn}
+        disabled={!selectedMachineId || loadingMaster}
+      >
+        {selectedPart ? `Part: ${selectedPart.partName}` : "Select Part"}
+      </Button>
+      <Button
+        mode="outlined"
+        onPress={() => {}}
+        style={styles.machineBtn}
+        disabled
+      >
+        {selectedJob ? `Job: ${selectedJob.jobName}` : "Job (Optional)"}
+      </Button>
+      {!selectedMachineId ? <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>Select machine first.</Text> : null}
+      {selectedMachineId && !machineParts.length ? <Text style={[styles.locationHint, { color: theme.custom.colors.error }]}>No compatible parts found.</Text> : null}
+      {selectedPartId && !compatibleJobs.length ? <Text style={[styles.locationHint, { color: theme.custom.colors.error }]}>No compatible jobs found.</Text> : null}
 
       {selectedMachine ? (
         <GlassCard style={styles.selectedMachineCard}>
@@ -197,11 +289,6 @@ const LogEfficiencyScreen = () => {
       <FormTextField control={control} name="workingHours" label="Working Hours" keyboardType="numeric" />
       <FormTextField control={control} name="outputProduced" label="Output Produced" keyboardType="numeric" />
       <FormTextField control={control} name="downtime" label="Downtime (Hours)" keyboardType="numeric" />
-      <FormTextField control={control} name="partName" label="Part Name" />
-      <FormTextField control={control} name="operationCode" label="Operation Code" />
-      <FormTextField control={control} name="cycleTime" label="Cycle Time" keyboardType="numeric" />
-      <FormTextField control={control} name="plannedQty" label="Planned Qty" keyboardType="numeric" />
-      <FormTextField control={control} name="actualQty" label="Actual Qty" keyboardType="numeric" />
       <FormTextField control={control} name="rejectedQty" label="Rejected Qty" keyboardType="numeric" />
       <FormTextField control={control} name="breakdownReason" label="Breakdown Reason" />
 
@@ -233,7 +320,7 @@ const LogEfficiencyScreen = () => {
         title="Save Log"
         onPress={handleSubmit(onSubmit)}
         loading={saving}
-        disabled={!isInsideRadius || permissionStatus !== "granted" || !servicesEnabled}
+        disabled={!isInsideRadius || permissionStatus !== "granted" || !servicesEnabled || !canSubmitLogs}
       />
       <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
         Company zone: {companyLocation.latitude}, {companyLocation.longitude} ({companyLocation.radiusMeters}m)
@@ -272,6 +359,10 @@ const LogEfficiencyScreen = () => {
                   ]}
                   onPress={() => {
                     setValue("machineId", item.id, { shouldValidate: true });
+                    setValue("partId", "", { shouldValidate: false });
+                    setValue("jobId", "", { shouldValidate: false });
+                    setMachineParts([]);
+                    setMachineJobs([]);
                     setPickerVisible(false);
                   }}
                 >
@@ -286,6 +377,66 @@ const LogEfficiencyScreen = () => {
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setPickerVisible(false)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+        <Dialog visible={partPickerVisible} onDismiss={() => setPartPickerVisible(false)} style={styles.pickerDialog}>
+          <Dialog.Title>Select Part</Dialog.Title>
+          <Dialog.Content>
+            <FlatList
+              data={machineParts}
+              keyExtractor={(item) => item.id}
+              style={styles.pickerList}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={[styles.machineOption, { backgroundColor: theme.colors.surface }]}
+                  onPress={() => {
+                    setValue("partId", item.id, { shouldValidate: true });
+                    setValue("jobId", "", { shouldValidate: false });
+                    setPartPickerVisible(false);
+                  }}
+                >
+                  <View style={styles.optionMeta}>
+                    <Text style={[styles.optionTitle, { color: theme.colors.onSurface }]}>{item.partName}</Text>
+                    <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>
+                      {item.operationCode} | {item.partNumber}
+                    </Text>
+                  </View>
+                </Pressable>
+              )}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPartPickerVisible(false)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+        <Dialog visible={jobPickerVisible} onDismiss={() => setJobPickerVisible(false)} style={styles.pickerDialog}>
+          <Dialog.Title>Select Job</Dialog.Title>
+          <Dialog.Content>
+            <FlatList
+              data={compatibleJobs}
+              keyExtractor={(item) => item.id}
+              style={styles.pickerList}
+              ListEmptyComponent={<Text style={{ color: theme.custom.colors.textMuted }}>No compatible jobs found.</Text>}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={[styles.machineOption, { backgroundColor: theme.colors.surface }]}
+                  onPress={() => {
+                    setValue("jobId", item.id, { shouldValidate: true });
+                    setJobPickerVisible(false);
+                  }}
+                >
+                  <View style={styles.optionMeta}>
+                    <Text style={[styles.optionTitle, { color: theme.colors.onSurface }]}>{item.jobName}</Text>
+                    <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>
+                      {item.jobCode || "-"} | CT: {item.estimatedCycleTime || 0}
+                    </Text>
+                  </View>
+                </Pressable>
+              )}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setJobPickerVisible(false)}>Close</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { AppState, Linking } from "react-native";
 import * as Location from "expo-location";
+import { getDistanceMeters, isWithinRadius } from "../utils/geofence";
 
 const CompanyConfigContext = createContext(null);
 
@@ -9,21 +10,6 @@ const toNumber = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const haversineDistanceMeters = (from, to) => {
-  if (!from || !to) return null;
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const r = 6371000;
-  const dLat = toRad(to.latitude - from.latitude);
-  const dLng = toRad(to.longitude - from.longitude);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(from.latitude)) *
-      Math.cos(toRad(to.latitude)) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return r * c;
-};
 
 export const CompanyConfigProvider = ({ children }) => {
   const companyLocation = useMemo(
@@ -92,13 +78,12 @@ export const CompanyConfigProvider = ({ children }) => {
 
   const distanceFromCompanyMeters = useMemo(() => {
     if (!currentLocation) return null;
-    return haversineDistanceMeters(currentLocation, companyLocation);
+    return getDistanceMeters(currentLocation, companyLocation);
   }, [companyLocation, currentLocation]);
 
   const isInsideCompanyRadius = useMemo(() => {
-    if (distanceFromCompanyMeters == null) return false;
-    return distanceFromCompanyMeters <= companyLocation.radiusMeters;
-  }, [companyLocation.radiusMeters, distanceFromCompanyMeters]);
+    return isWithinRadius({ from: currentLocation, target: companyLocation, radiusMeters: companyLocation.radiusMeters });
+  }, [companyLocation, currentLocation]);
 
   const value = useMemo(
     () => ({

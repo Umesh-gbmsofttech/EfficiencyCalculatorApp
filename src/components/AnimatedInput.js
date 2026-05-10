@@ -19,7 +19,8 @@ const AnimatedInput = ({
   keyboardType = "default",
   error,
   autoCapitalize = "none",
-  style
+  style,
+  editable = true
 }) => {
   const theme = useTheme();
   const [focused, setFocused] = useState(false);
@@ -69,6 +70,7 @@ const AnimatedInput = ({
           keyboardType={keyboardType}
           secureTextEntry={hidden}
           autoCapitalize={autoCapitalize}
+          editable={editable}
           style={[styles.input, { color: theme.colors.onSurface }]}
           placeholderTextColor={theme.custom.colors.textMuted}
         />

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Dialog, Portal, useTheme } from "react-native-paper";
-import { useFocusEffect } from "@react-navigation/native";
 import ReportFilters from "../../components/ReportFilters";
 import EmptyState from "../../components/EmptyState";
 import GlassCard from "../../components/GlassCard";
@@ -9,17 +9,22 @@ import RemoteImage from "../../components/RemoteImage";
 import ScreenContainer from "../../components/ScreenContainer";
 import useAuthStore from "../../store/authStore";
 import AnimatedInput from "../../components/AnimatedInput";
-import { getMachines, getWorkers, updateEfficiencyLog } from "../../services/firebase/firestore";
 import usePaginatedLogs from "../../hooks/usePaginatedLogs";
 import { formatDateTime, formatPercent } from "../../utils/formatters";
 import useUIStore from "../../store/uiStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
 import { calculateEfficiency, calculateExpectedOutput } from "../../utils/calculations";
+import { hasAccess } from "../../utils/access";
+import machineService from "../../services/firebase/machineService";
+import userService from "../../services/firebase/userService";
+import logService from "../../services/firebase/logService";
+import { logInfo } from "../../utils/logger";
 
 const AdminReportsScreen = () => {
   const { user, profile } = useAuthStore();
   const { showSnackbar } = useUIStore();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [workers, setWorkers] = useState([]);
   const [machines, setMachines] = useState([]);
   const [workerMenu, setWorkerMenu] = useState(false);
@@ -46,7 +51,6 @@ const AdminReportsScreen = () => {
     rejectedQty: "",
     breakdownReason: ""
   });
-  const isAdmin = profile?.role === "admin";
   const role = profile?.role || null;
 
   const { records, loading, refreshing, hasMore, loadMore, refresh } = usePaginatedLogs({
@@ -59,7 +63,7 @@ const AdminReportsScreen = () => {
   useEffect(() => {
     const loadFilterData = async () => {
       try {
-        const [workerData, machineData] = await Promise.all([getWorkers(), getMachines()]);
+        const [workerData, machineData] = await Promise.all([userService.list({ role: "admin" }), machineService.list()]);
         setWorkers(workerData);
         setMachines(machineData);
       } catch (error) {
@@ -68,12 +72,6 @@ const AdminReportsScreen = () => {
     };
     loadFilterData();
   }, [showSnackbar]);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      refresh();
-    }, [refresh])
-  );
 
   const visibleRecords = useMemo(() => {
     if (!filters.search.trim()) return records;
@@ -84,20 +82,12 @@ const AdminReportsScreen = () => {
         item.machineName?.toLowerCase().includes(search)
     );
   }, [records, filters.search]);
+  const listBottomPadding = insets.bottom + 104;
 
-  console.info("[AdminReports] state", { role: role || "none", reportsLength: visibleRecords.length });
+  logInfo("AdminReports", "state", { role: role || "none", reportsLength: visibleRecords.length });
 
   if (!role) return null;
-
-  if (!isAdmin) {
-    return (
-      <ScreenContainer>
-        <View style={styles.restrictedWrap}>
-          <Text style={[styles.restrictedText, { color: theme.custom.colors.textMuted }]}>Access restricted</Text>
-        </View>
-      </ScreenContainer>
-    );
-  }
+  if (!hasAccess(role, ["admin"])) return null;
 
   const onOpenEdit = (item) => {
     setEditingLog(item);
@@ -141,7 +131,7 @@ const AdminReportsScreen = () => {
       const expectedOutput = calculateExpectedOutput(expectedPerHour, workingHours, downtime);
       const efficiency = calculateEfficiency(outputProduced, expectedOutput);
       setEditSaving(true);
-      await updateEfficiencyLog(editingLog.id, {
+      await logService.update(editingLog.id, {
         workingHours,
         outputProduced,
         downtime,
@@ -172,6 +162,10 @@ const AdminReportsScreen = () => {
       <FlatList
         data={visibleRecords}
         keyExtractor={(item) => item.id}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews
         ListHeaderComponent={
           <ReportFilters
             workers={workers}
@@ -184,8 +178,8 @@ const AdminReportsScreen = () => {
             onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
           />
         }
-        ListEmptyComponent={loading ? null : <EmptyState text="No reports found." />}
-        contentContainerStyle={styles.list}
+        ListEmptyComponent={loading ? null : <EmptyState text="No logs yet" />}
+        contentContainerStyle={[styles.list, { paddingBottom: listBottomPadding }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
         renderItem={({ item }) => (
           <GlassCard>
@@ -206,13 +200,23 @@ const AdminReportsScreen = () => {
             </Text>
             <Text style={[styles.efficiency, { color: theme.colors.primary }]}>Efficiency: {formatPercent(item.efficiency)}</Text>
             <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>{formatDateTime(item.timestamp)}</Text>
-            {isAdmin ? (
-              <View style={styles.editActionWrap}>
-                <Button mode="contained-tonal" onPress={() => onOpenEdit(item)} style={styles.editBtn}>
-                  Edit
-                </Button>
-              </View>
-            ) : null}
+            <View style={styles.editActionWrap}>
+              <Button mode="contained-tonal" onPress={() => onOpenEdit(item)} style={styles.editBtn}>
+                Edit
+              </Button>
+              <Button
+                mode="outlined"
+                textColor={theme.custom.colors.error}
+                style={styles.editBtn}
+                onPress={async () => {
+                  await logService.remove(item.id);
+                  showSnackbar("Log deleted", "success");
+                  await refresh();
+                }}
+              >
+                Delete
+              </Button>
+            </View>
           </GlassCard>
         )}
         ListFooterComponent={
@@ -231,7 +235,8 @@ const AdminReportsScreen = () => {
         <Dialog visible={editVisible} onDismiss={() => setEditVisible(false)} style={styles.dialog}>
           <Dialog.Title>Edit Report</Dialog.Title>
           <Dialog.Content>
-            <AnimatedInput
+            <ScrollView contentContainerStyle={styles.formScroll} keyboardShouldPersistTaps="handled">
+              <AnimatedInput
               label="Working Hours"
               keyboardType="numeric"
               value={editForm.workingHours}
@@ -291,11 +296,12 @@ const AdminReportsScreen = () => {
               onChangeText={(value) => setEditForm((prev) => ({ ...prev, rejectedQty: value }))}
               style={styles.field}
             />
-            <AnimatedInput
+              <AnimatedInput
               label="Breakdown Reason"
               value={editForm.breakdownReason}
               onChangeText={(value) => setEditForm((prev) => ({ ...prev, breakdownReason: value }))}
-            />
+              />
+            </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setEditVisible(false)}>Cancel</Button>
@@ -311,7 +317,7 @@ const AdminReportsScreen = () => {
 
 const styles = StyleSheet.create({
   list: {
-    paddingBottom: 120
+    paddingBottom: 24
   },
   title: {
     fontSize: 16,
@@ -353,10 +359,12 @@ const styles = StyleSheet.create({
   },
   editActionWrap: {
     marginTop: 8,
-    alignItems: "flex-start"
+    flexDirection: "column"
   },
   editBtn: {
-    borderRadius: 10
+    borderRadius: 10,
+    width: "100%",
+    marginTop: 10
   },
   dialog: {
     borderRadius: 14
@@ -364,14 +372,8 @@ const styles = StyleSheet.create({
   field: {
     marginBottom: 8
   },
-  restrictedWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  restrictedText: {
-    fontSize: 15,
-    fontWeight: "500"
+  formScroll: {
+    paddingBottom: 8
   }
 });
 

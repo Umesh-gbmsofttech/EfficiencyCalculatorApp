@@ -12,13 +12,15 @@ import { adminCreateWorkerSchema, workerSchema } from "../../utils/validationSch
 import useUIStore from "../../store/uiStore";
 import useAuthStore from "../../store/authStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
-import { deleteWorker, getWorkers, updateWorker } from "../../services/firebase/firestore";
+import { repairMissingUsers } from "../../services/firebase/firestore";
 import { addWorker } from "../../services/firebase/auth";
+import { hasAccess } from "../../utils/access";
+import userService from "../../services/firebase/userService";
 
 const ManageWorkersScreen = () => {
   const { user, profile } = useAuthStore();
   const role = profile?.role || null;
-  const isAdmin = role === "admin";
+  const isAdmin = hasAccess(role, ["admin"]);
   const [workers, setWorkers] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -64,7 +66,7 @@ const ManageWorkersScreen = () => {
     try {
       setLoading(true);
       console.log("[Workers] role:", role);
-      const response = await getWorkers({ role, uid: user.uid });
+      const response = await userService.list({ role, uid: user.uid });
       setWorkers(response);
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
@@ -90,7 +92,7 @@ const ManageWorkersScreen = () => {
   const onSave = async (values) => {
     try {
       if (!editing) return;
-      await updateWorker(editing.id, values);
+      await userService.update(editing.id, values);
       showSnackbar("Worker updated", "success");
       setEditVisible(false);
       await loadWorkers();
@@ -101,10 +103,6 @@ const ManageWorkersScreen = () => {
 
   const onCreate = async (values) => {
     try {
-      if (!isAdmin) {
-        showSnackbar("Access restricted.", "warning");
-        return;
-      }
       const response = await addWorker(values);
       showSnackbar(
         response?.recovered ? "User already exists. Recovered account." : "Worker account created",
@@ -120,7 +118,7 @@ const ManageWorkersScreen = () => {
 
   const onDelete = async (id) => {
     try {
-      await deleteWorker(id, { actorUid: user?.uid, actorRole: role });
+      await userService.remove(id, { actorUid: user?.uid, actorRole: role });
       showSnackbar("Worker deleted", "success");
       await loadWorkers();
     } catch (error) {
@@ -136,19 +134,26 @@ const ManageWorkersScreen = () => {
     );
   }
 
-  if (!isAdmin) {
-    return (
-      <ScreenContainer>
-        <EmptyState text="Access restricted." />
-      </ScreenContainer>
-    );
-  }
-
   return (
     <ScreenContainer>
       <AnimatedInput label="Search worker" value={search} onChangeText={setSearch} style={styles.search} />
       <Button mode="contained" onPress={() => setCreateVisible(true)} style={styles.addWorkerBtn}>
         Add Worker
+      </Button>
+      <Button
+        mode="outlined"
+        onPress={async () => {
+          try {
+            const response = await repairMissingUsers();
+            showSnackbar(`Repaired ${response?.repaired?.length || 0} user records`, "success");
+            await loadWorkers();
+          } catch (error) {
+            showSnackbar(mapErrorMessage(error), "error");
+          }
+        }}
+        style={styles.addWorkerBtn}
+      >
+        Repair Missing Users
       </Button>
 
       <FlatList
@@ -172,9 +177,11 @@ const ManageWorkersScreen = () => {
             <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>{item.email}</Text>
             <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>{item.phoneNumber}</Text>
             <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Role: {item.role}</Text>
+            <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Status: {item.isActive === false ? "Inactive" : "Active"}</Text>
             <View style={styles.actions}>
               <Button
                 mode="contained-tonal"
+                style={styles.actionButton}
                 onPress={() => {
                   setEditing(item);
                   reset({
@@ -187,11 +194,20 @@ const ManageWorkersScreen = () => {
               >
                 Edit
               </Button>
-              {isAdmin ? (
-                <Button textColor={theme.custom.colors.error} onPress={() => onDelete(item.id)}>
-                  Delete
-                </Button>
-              ) : null}
+              <Button
+                mode="outlined"
+                style={styles.actionButton}
+                onPress={async () => {
+                  await userService.update(item.id, { isActive: item.isActive === false });
+                  showSnackbar(item.isActive === false ? "Worker activated" : "Worker deactivated", "success");
+                  await loadWorkers();
+                }}
+              >
+                {item.isActive === false ? "Activate" : "Deactivate"}
+              </Button>
+              <Button textColor={theme.custom.colors.error} style={styles.actionButton} onPress={() => onDelete(item.id)}>
+                Delete
+              </Button>
             </View>
           </GlassCard>
         )}
@@ -318,8 +334,11 @@ const styles = StyleSheet.create({
   },
   actions: {
     marginTop: 8,
-    flexDirection: "row",
-    justifyContent: "space-between"
+    flexDirection: "column"
+  },
+  actionButton: {
+    width: "100%",
+    marginTop: 10
   },
   dialog: {
     borderRadius: 14

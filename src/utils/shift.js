@@ -11,3 +11,9 @@ export const getShiftDate = (value) => {
   const day = String(shifted.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
+
+export const getShiftType = (value) => {
+  const date = value?.toDate ? value.toDate() : new Date(value);
+  if (Number.isNaN(date.getTime())) return "day";
+  return date.getHours() >= 8 && date.getHours() < 20 ? "day" : "night";
+};

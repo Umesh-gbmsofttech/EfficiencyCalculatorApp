@@ -14,6 +14,10 @@ service cloud.firestore {
       return isSignedIn() &&
         get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == "operator";
     }
+    function isStaff() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == "staff";
+    }
 
     match /users/{userId} {
       allow read: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
@@ -26,10 +30,18 @@ service cloud.firestore {
         request.auth.uid == userId &&
         request.resource.data.uid == request.auth.uid &&
         request.resource.data.role in ["operator", "staff"]);
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() || (isSignedIn() &&
+        request.auth.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
     }
 
     match /machines/{machineId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    match /parts_master/{partId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
@@ -41,8 +53,8 @@ service cloud.firestore {
 
     match /attendance/{attendanceId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isAdmin() || (isSignedIn() && request.resource.data.userId == request.auth.uid);
-      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isAdmin() || ((isOperator() || isStaff()) && request.resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin() || ((isOperator() || isStaff()) && resource.data.userId == request.auth.uid);
     }
 
     match /salaryConfigs/{userId} {
@@ -51,6 +63,10 @@ service cloud.firestore {
     }
 
     match /salarySettlements/{docId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+    match /salary_records/{recordId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow write: if isAdmin();
     }

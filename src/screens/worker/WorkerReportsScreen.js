@@ -1,9 +1,9 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "react-native-paper";
 import useAuthStore from "../../store/authStore";
-import { getLogsPage } from "../../services/firebase/firestore";
 import { mapErrorMessage } from "../../utils/errorMapper";
 import { formatDateTime, formatPercent } from "../../utils/formatters";
 import useUIStore from "../../store/uiStore";
@@ -11,19 +11,20 @@ import AnimatedInput from "../../components/AnimatedInput";
 import GlassCard from "../../components/GlassCard";
 import RemoteImage from "../../components/RemoteImage";
 import ScreenContainer from "../../components/ScreenContainer";
+import EmptyState from "../../components/EmptyState";
+import logRepository from "../../repositories/logRepository";
 
 const WorkerReportsScreen = () => {
   const { user, profile } = useAuthStore();
   const { showSnackbar } = useUIStore();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [reports, setReports] = useState([]);
 
   const role = profile?.role || null;
-  const isAdmin = role === "admin";
-  const isStaff = role === "staff";
 
   const fetchReports = useCallback(async (isPullRefresh = false) => {
     if (!user?.uid) {
@@ -39,7 +40,7 @@ const WorkerReportsScreen = () => {
     }
 
     try {
-      const response = await getLogsPage({ role: "operator", uid: user.uid, filters: {}, cursor: null, pageSize: 50 });
+      const response = await logRepository.getPage({ role: "operator", uid: user.uid, filters: {}, cursor: null, pageSize: 20 });
       setReports(response.records || []);
       console.info("[WorkerReports] state", { role, reportsLength: (response.records || []).length });
     } catch (error) {
@@ -65,18 +66,9 @@ const WorkerReportsScreen = () => {
     const s = search.toLowerCase();
     return reports.filter((item) => item.machineName?.toLowerCase().includes(s));
   }, [reports, search]);
+  const listBottomPadding = insets.bottom + 104;
 
   if (!role) return null;
-
-  if (isAdmin || isStaff) {
-    return (
-      <ScreenContainer>
-        <View style={styles.centerWrap}>
-          <Text style={[styles.restrictedText, { color: theme.custom.colors.textMuted }]}>Access restricted</Text>
-        </View>
-      </ScreenContainer>
-    );
-  }
 
   if (loading) {
     return (
@@ -93,7 +85,7 @@ const WorkerReportsScreen = () => {
       <ScreenContainer>
         <AnimatedInput label="Search by machine" value={search} onChangeText={setSearch} style={styles.search} />
         <View style={styles.centerWrap}>
-          <Text style={[styles.restrictedText, { color: theme.custom.colors.textMuted }]}>No data available</Text>
+          <EmptyState text="No logs yet" />
         </View>
       </ScreenContainer>
     );
@@ -106,7 +98,7 @@ const WorkerReportsScreen = () => {
         keyExtractor={(item) => item.id}
         ListHeaderComponent={<AnimatedInput label="Search by machine" value={search} onChangeText={setSearch} style={styles.search} />}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchReports(true)} />}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: listBottomPadding }]}
         renderItem={({ item }) => (
           <GlassCard>
             <View style={styles.row}>
@@ -133,7 +125,7 @@ const styles = StyleSheet.create({
     marginBottom: 10
   },
   list: {
-    paddingBottom: 120
+    paddingBottom: 24
   },
   title: {
     fontSize: 16,

@@ -26,12 +26,20 @@ export const forgotPasswordSchema = yup.object({
 export const machineSchema = yup.object({
   name: yup.string().required("Machine name is required"),
   code: yup.string().required("Machine code is required"),
+  partIds: yup
+    .array()
+    .of(yup.string().trim())
+    .default([]),
+  jobIds: yup
+    .array()
+    .of(yup.string().trim())
+    .default([]),
   imageUrl: yup
     .string()
     .trim()
-    .required("Machine image URL is required")
+    .nullable()
     .test("is-valid-url", "Enter a valid image URL", (value) => {
-      if (!value) return false;
+      if (!value) return true;
       return /^https?:\/\/.+/i.test(value);
     }),
   expectedOutputPerHour: yup
@@ -57,6 +65,8 @@ export const adminCreateWorkerSchema = yup.object({
 
 export const logSchema = yup.object({
   machineId: yup.string().required("Please select machine"),
+  partId: yup.string().required("Please select part"),
+  jobId: yup.string().nullable().default(""),
   workingHours: yup
     .number()
     .typeError("Must be a number")

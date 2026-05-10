@@ -4,9 +4,12 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
+  orderBy,
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
   where
 } from "firebase/firestore";
 import { db } from "./config";
@@ -55,28 +58,49 @@ export const calculateMonthlySalary = async ({ userId, year, month }) => {
   const from = Timestamp.fromDate(firstDay(year, month));
   const to = Timestamp.fromDate(lastDay(year, month));
 
-  const [attendanceSnap, logsSnap, settlementSnap] = await Promise.all([
-    getDocs(
-      query(
-        collection(db, COLLECTIONS.ATTENDANCE),
-        where("userId", "==", userId),
-        where("loginTime", ">=", from),
-        where("loginTime", "<=", to)
+  let attendanceSnap;
+  let logsSnap;
+  const settlementSnap = await getDoc(doc(db, COLLECTIONS.SALARY_SETTLEMENTS, `${userId}_${monthKey(year, month)}`));
+  try {
+    [attendanceSnap, logsSnap] = await Promise.all([
+      getDocs(
+        query(
+          collection(db, COLLECTIONS.ATTENDANCE),
+          where("userId", "==", userId),
+          where("loginTime", ">=", from),
+          where("loginTime", "<=", to)
+        )
+      ),
+      getDocs(
+        query(
+          collection(db, COLLECTIONS.LOGS),
+          where("userId", "==", userId),
+          where("timestamp", ">=", from),
+          where("timestamp", "<=", to)
+        )
       )
-    ),
-    getDocs(
-      query(
-        collection(db, COLLECTIONS.LOGS),
-        where("userId", "==", userId),
-        where("timestamp", ">=", from),
-        where("timestamp", "<=", to)
-      )
-    ),
-    getDoc(doc(db, COLLECTIONS.SALARY_SETTLEMENTS, `${userId}_${monthKey(year, month)}`))
-  ]);
+    ]);
+  } catch (error) {
+    const canFallback = error?.code === "failed-precondition" || String(error?.message || "").toLowerCase().includes("index");
+    if (!canFallback) throw error;
+    [attendanceSnap, logsSnap] = await Promise.all([
+      getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), where("userId", "==", userId), limit(1000))),
+      getDocs(query(collection(db, COLLECTIONS.LOGS), where("userId", "==", userId), limit(2000)))
+    ]);
+  }
 
-  const attendance = attendanceSnap.docs.map((d) => d.data());
-  const logs = logsSnap.docs.map((d) => d.data());
+  const attendance = attendanceSnap.docs
+    .map((d) => d.data())
+    .filter((a) => {
+      const dt = a.loginTime?.toDate?.();
+      return dt ? dt >= from.toDate() && dt <= to.toDate() : false;
+    });
+  const logs = logsSnap.docs
+    .map((d) => d.data())
+    .filter((l) => {
+      const dt = l.timestamp?.toDate?.();
+      return dt ? dt >= from.toDate() && dt <= to.toDate() : false;
+    });
   const presentDays = new Set(attendance.filter((a) => a.isPresent).map((a) => a.shiftDate)).size;
   const expected = Number(config.workingDaysPerMonth || 26);
   const dailyBase = Number(config.baseAmount || 0) / Math.max(1, expected);
@@ -116,4 +140,67 @@ export const settleMonthlySalary = async ({ userId, year, month, actorUid }) => 
     { merge: true }
   );
   return summary;
+};
+
+export const calculateSalaryRecord = async ({ userId, baseSalary = 0, perPartRate = 0, bonus = 0, deduction = 0, month, actorUid }) => {
+  const [y, m] = String(month).split("-").map(Number);
+  const from = Timestamp.fromDate(firstDay(y, m));
+  const to = Timestamp.fromDate(lastDay(y, m));
+  const [attendanceSnap, logsSnap] = await Promise.all([
+    getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), where("userId", "==", userId), where("loginTime", ">=", from), where("loginTime", "<=", to))),
+    getDocs(query(collection(db, COLLECTIONS.LOGS), where("userId", "==", userId), where("timestamp", ">=", from), where("timestamp", "<=", to)))
+  ]);
+  const attendance = attendanceSnap.docs.map((d) => d.data());
+  const logs = logsSnap.docs.map((d) => d.data());
+  const attendanceDays = new Set(attendance.filter((a) => a.isPresent !== false).map((a) => a.shiftDate)).size;
+  const totalProduction = logs.reduce((sum, l) => sum + Number(l.actualQty || l.outputProduced || 0), 0);
+  const computedBonus = Number(bonus || 0);
+  const computedDeduction = Number(deduction || 0);
+  const finalSalary = totalProduction * Number(perPartRate || 0) + computedBonus - computedDeduction;
+  const id = `${userId}_${month}`;
+  const payload = {
+    userId,
+    month,
+    baseSalary: Number(baseSalary || 0),
+    perPartRate: Number(perPartRate || 0),
+    attendanceDays,
+    totalProduction,
+    bonus: computedBonus,
+    deduction: computedDeduction,
+    finalSalary: Number(finalSalary.toFixed(2)),
+    locked: false,
+    updatedAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    calculatedBy: actorUid || ""
+  };
+  await setDoc(doc(db, COLLECTIONS.SALARY_RECORDS, id), payload, { merge: true });
+  return { id, ...payload };
+};
+
+export const lockSalaryRecord = async (recordId) => {
+  await updateDoc(doc(db, COLLECTIONS.SALARY_RECORDS, recordId), {
+    locked: true,
+    updatedAt: serverTimestamp()
+  });
+};
+
+export const getSalaryRecords = async ({ userId, max } = {}) => {
+  const constraints = [orderBy("month", "desc")];
+  if (userId) constraints.unshift(where("userId", "==", userId));
+  if (max) constraints.push(limit(max));
+  try {
+    const snap = await getDocs(query(collection(db, COLLECTIONS.SALARY_RECORDS), ...constraints));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    const canFallback = error?.code === "failed-precondition" || String(error?.message || "").toLowerCase().includes("index");
+    if (!canFallback) throw error;
+    const fallbackConstraints = [];
+    if (userId) fallbackConstraints.push(where("userId", "==", userId));
+    if (max) fallbackConstraints.push(limit(Math.max(max * 4, 20)));
+    const fallbackSnap = await getDocs(query(collection(db, COLLECTIONS.SALARY_RECORDS), ...fallbackConstraints));
+    return fallbackSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => String(b.month || "").localeCompare(String(a.month || "")))
+      .slice(0, max || 100);
+  }
 };

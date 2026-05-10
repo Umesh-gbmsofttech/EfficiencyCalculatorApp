@@ -14,6 +14,8 @@ import {
 import { db } from "./config";
 import { COLLECTIONS } from "../../constants/collections";
 import { getShiftDate } from "../../utils/shift";
+import { getShiftType } from "../../utils/shift";
+import { hasAccess } from "../../utils/access";
 
 const formatYmd = (date) => {
   const d = new Date(date);
@@ -23,11 +25,6 @@ const formatYmd = (date) => {
   return `${y}-${m}-${day}`;
 };
 
-const startOfDay = (dateString) => new Date(`${dateString}T00:00:00.000`);
-const endOfDay = (dateString) => new Date(`${dateString}T23:59:59.999`);
-
-const calculateShiftType = (date) => (date.getHours() >= 8 && date.getHours() < 20 ? "day" : "night");
-
 const hoursBetween = (start, end) => {
   const s = start?.toDate ? start.toDate() : new Date(start);
   const e = end?.toDate ? end.toDate() : new Date(end);
@@ -35,20 +32,63 @@ const hoursBetween = (start, end) => {
   return Number(Math.max(0, hours).toFixed(2));
 };
 
-export const markAttendanceLogin = async ({ user, role, shiftType }) => {
-  const now = new Date();
+export const markAttendanceLogin = async ({ user, role, shiftType, loginTime, startTimeText = "", endTimeText = "", location, withinRadius = true, approvedBy = "" }) => {
+  const now = loginTime ? new Date(loginTime) : new Date();
   const timestamp = Timestamp.fromDate(now);
-  const computedShiftType = shiftType || calculateShiftType(now);
+  const computedShiftType = shiftType || getShiftType(now);
   const shiftDate = getShiftDate(now);
+  const existing = await getAttendanceForUserShift({ userId: user.uid, shiftDate });
+  if (existing) {
+    await updateDoc(doc(db, COLLECTIONS.ATTENDANCE, existing.id), {
+      userName: user.fullName || "Worker",
+      role,
+      shift: computedShiftType,
+      shiftType: computedShiftType,
+      shiftStart: startTimeText,
+      shiftEnd: endTimeText,
+      shiftDate,
+      startTimeText,
+      endTimeText,
+      date: shiftDate,
+      startTime: timestamp,
+      checkInTime: timestamp,
+      loginTime: timestamp,
+      endTime: null,
+      checkOutTime: null,
+      logoutTime: null,
+      totalHours: 0,
+      location: location || null,
+      withinRadius: Boolean(withinRadius),
+      approvedBy: approvedBy || "",
+      status: "present",
+      isPresent: true,
+      updatedAt: serverTimestamp()
+    });
+    return { id: existing.id, updated: true };
+  }
   return addDoc(collection(db, COLLECTIONS.ATTENDANCE), {
     userId: user.uid,
     userName: user.fullName || "Worker",
     role,
+    shift: computedShiftType,
     shiftType: computedShiftType,
+    shiftStart: startTimeText,
+    shiftEnd: endTimeText,
     shiftDate,
+    startTimeText,
+    endTimeText,
+    date: shiftDate,
+    startTime: timestamp,
+    checkInTime: timestamp,
     loginTime: timestamp,
+    endTime: null,
+    checkOutTime: null,
     logoutTime: null,
     totalHours: 0,
+    location: location || null,
+    withinRadius: Boolean(withinRadius),
+    approvedBy: approvedBy || "",
+    status: "present",
     isPresent: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
@@ -56,22 +96,47 @@ export const markAttendanceLogin = async ({ user, role, shiftType }) => {
 };
 
 export const markAttendanceLogout = async ({ userId, shiftDate }) => {
-  const q = query(
-    collection(db, COLLECTIONS.ATTENDANCE),
-    where("userId", "==", userId),
-    where("shiftDate", "==", shiftDate),
-    orderBy("createdAt", "desc"),
-    limit(1)
-  );
-  const snap = await getDocs(q);
+  let snap;
+  try {
+    const q = query(
+      collection(db, COLLECTIONS.ATTENDANCE),
+      where("userId", "==", userId),
+      where("shiftDate", "==", shiftDate),
+      orderBy("createdAt", "desc"),
+      limit(1)
+    );
+    snap = await getDocs(q);
+  } catch (error) {
+    const canFallback = error?.code === "failed-precondition" || String(error?.message || "").toLowerCase().includes("index");
+    if (!canFallback) throw error;
+    const fallbackQ = query(
+      collection(db, COLLECTIONS.ATTENDANCE),
+      where("userId", "==", userId),
+      where("shiftDate", "==", shiftDate),
+      limit(10)
+    );
+    const fallbackSnap = await getDocs(fallbackQ);
+    const sorted = fallbackSnap.docs.sort((a, b) => {
+      const aTime = a.data()?.createdAt?.toDate?.()?.getTime?.() || a.data()?.loginTime?.toDate?.()?.getTime?.() || 0;
+      const bTime = b.data()?.createdAt?.toDate?.()?.getTime?.() || b.data()?.loginTime?.toDate?.()?.getTime?.() || 0;
+      return bTime - aTime;
+    });
+    snap = { docs: sorted };
+  }
   if (!snap.docs.length) return null;
   const docSnap = snap.docs[0];
   const data = docSnap.data();
+  if (data.logoutTime) {
+    return { id: docSnap.id, totalHours: Number(data.totalHours || 0), alreadyLoggedOut: true };
+  }
   const logoutTime = Timestamp.now();
   const totalHours = hoursBetween(data.loginTime, logoutTime);
   await updateDoc(doc(db, COLLECTIONS.ATTENDANCE, docSnap.id), {
+    endTime: logoutTime,
+    checkOutTime: logoutTime,
     logoutTime,
     totalHours,
+    status: "completed",
     updatedAt: serverTimestamp()
   });
   return { id: docSnap.id, totalHours };
@@ -92,10 +157,68 @@ export const getAttendanceForUserShift = async ({ userId, shiftDate }) => {
 
 export const getAttendanceRecords = async ({ role, userId, from, to }) => {
   const constraints = [];
-  if (role !== "admin") constraints.push(where("userId", "==", userId));
-  if (from) constraints.push(where("loginTime", ">=", Timestamp.fromDate(startOfDay(from))));
-  if (to) constraints.push(where("loginTime", "<=", Timestamp.fromDate(endOfDay(to))));
-  constraints.push(orderBy("loginTime", "desc"), limit(400));
+  if (!hasAccess(role, ["admin"])) constraints.push(where("userId", "==", userId));
+  if (from) constraints.push(where("shiftDate", ">=", from));
+  if (to) constraints.push(where("shiftDate", "<=", to));
+  constraints.push(orderBy("shiftDate", "desc"), limit(400));
+  try {
+    const snap = await getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), ...constraints));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const aTime = a.loginTime?.toDate?.()?.getTime?.() || 0;
+        const bTime = b.loginTime?.toDate?.()?.getTime?.() || 0;
+        return bTime - aTime;
+      });
+  } catch (error) {
+    const canFallback = error?.code === "failed-precondition" || String(error?.message || "").toLowerCase().includes("index");
+    if (!canFallback) throw error;
+    const fallback = [];
+    if (!hasAccess(role, ["admin"])) fallback.push(where("userId", "==", userId));
+    if (from) fallback.push(where("shiftDate", ">=", from));
+    if (to) fallback.push(where("shiftDate", "<=", to));
+    fallback.push(limit(400));
+    const snap = await getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), ...fallback));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const aTime = a.loginTime?.toDate?.()?.getTime?.() || 0;
+        const bTime = b.loginTime?.toDate?.()?.getTime?.() || 0;
+        return bTime - aTime;
+      });
+  }
+};
+
+export const getRecentAttendance = async ({ userId, max = 5 }) => {
+  try {
+    const q = query(
+      collection(db, COLLECTIONS.ATTENDANCE),
+      where("userId", "==", userId),
+      orderBy("loginTime", "desc"),
+      limit(max)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    const canFallback = error?.code === "failed-precondition" || String(error?.message || "").toLowerCase().includes("index");
+    if (!canFallback) throw error;
+    const q = query(collection(db, COLLECTIONS.ATTENDANCE), where("userId", "==", userId), limit(Math.max(max * 4, 20)));
+    const snap = await getDocs(q);
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const aTime = a.loginTime?.toDate?.()?.getTime?.() || 0;
+        const bTime = b.loginTime?.toDate?.()?.getTime?.() || 0;
+        return bTime - aTime;
+      })
+      .slice(0, max);
+  }
+};
+
+export const getTodayAttendanceRecords = async ({ role } = {}) => {
+  const shiftDate = getShiftDate(new Date());
+  const constraints = [where("shiftDate", "==", shiftDate), orderBy("loginTime", "desc"), limit(200)];
+  if (role) constraints.unshift(where("role", "==", role));
   const snap = await getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), ...constraints));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 };
