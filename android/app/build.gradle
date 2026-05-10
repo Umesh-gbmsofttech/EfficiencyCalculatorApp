@@ -79,10 +79,6 @@ def enableProguardInReleaseBuilds = (findProperty('android.enableProguardInRelea
  * this variant is about 6MiB larger per architecture than default.
  */
 def jscFlavor = 'org.webkit:android-jsc:+'
-def releaseStoreFile = findProperty('MYAPP_UPLOAD_STORE_FILE') ?: System.getenv('ANDROID_KEYSTORE_FILE') ?: 'keystore.jks'
-def releaseKeyAlias = System.getenv('ANDROID_KEY_ALIAS') ?: findProperty('MYAPP_UPLOAD_KEY_ALIAS')
-def releaseStorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD') ?: findProperty('MYAPP_UPLOAD_STORE_PASSWORD')
-def releaseKeyPassword = System.getenv('ANDROID_KEY_PASSWORD') ?: findProperty('MYAPP_UPLOAD_KEY_PASSWORD')
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -105,14 +101,6 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        release {
-            if (releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
-                storeFile file(releaseStoreFile)
-                storePassword releaseStorePassword
-                keyAlias releaseKeyAlias
-                keyPassword releaseKeyPassword
-            }
-        }
     }
     buildTypes {
         debug {
@@ -121,7 +109,7 @@ android {
         release {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.release
+            signingConfig signingConfigs.debug
             shrinkResources (findProperty('android.enableShrinkResourcesInReleaseBuilds')?.toBoolean() ?: false)
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
@@ -135,12 +123,6 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
-    }
-}
-
-tasks.configureEach { task ->
-    if (task.name == "createBundleReleaseJsAndAssets" && task instanceof Exec) {
-        task.environment("NODE_ENV", "production")
     }
 }
 
