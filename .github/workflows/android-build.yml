@@ -82,8 +82,17 @@ jobs:
         run: |
           echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > google-services.json
 
+      - name: Remove Existing Android Folder
+        run: rm -rf android
+
       - name: Generate Android Native Project
-        run: npx expo prebuild --platform android --non-interactive
+        run: npx expo prebuild --platform android --clean --non-interactive
+
+      - name: Verify Expo Modules Wiring
+        run: |
+          test -f android/settings.gradle || (echo "android/settings.gradle missing" && exit 1)
+          cat android/settings.gradle
+          grep -q "useExpoModules()" android/settings.gradle || (echo "useExpoModules() missing from settings.gradle" && exit 1)
 
       - name: Place Keystore
         run: mv android-upload-key.keystore android/app/keystore.jks
