@@ -22,7 +22,7 @@ const RootNavigator = () => {
     const snapshot = `${user.uid}:${role}:${isAdminUser ? "admin" : "operator"}`;
     if (lastLogRef.current === snapshot) return;
     lastLogRef.current = snapshot;
-    console.info("[RootNavigator] role resolved", { uid: user.uid, role, isAdmin });
+    console.info("[RootNavigator] role resolved", { uid: user.uid, role, isAdmin: isAdminUser });
   }, [isAdminUser, role, user?.uid]);
 
   if (initializing || waitingForRole) {

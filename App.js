@@ -1,5 +1,5 @@
 import "react-native-gesture-handler";
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, useColorScheme, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { Provider as PaperProvider } from "react-native-paper";
@@ -57,6 +57,13 @@ export default function App() {
   const navigationTheme = useMemo(() => createNavigationTheme(resolvedTheme), [resolvedTheme]);
   const showConfigError = Boolean(firebaseInitError);
   const [fontsLoaded] = useFonts(MaterialCommunityIcons.font);
+  const [fontTimeoutReached, setFontTimeoutReached] = useState(false);
+
+  useEffect(() => {
+    if (fontsLoaded) return;
+    const timer = setTimeout(() => setFontTimeoutReached(true), 3500);
+    return () => clearTimeout(timer);
+  }, [fontsLoaded]);
 
   if (showConfigError) {
     console.error("[FirebaseConfig] Missing EXPO_PUBLIC variables", missingFirebaseEnv);
@@ -71,7 +78,7 @@ export default function App() {
       </SafeAreaProvider>
     );
   }
-  if (!fontsLoaded) {
+  if (!fontsLoaded && !fontTimeoutReached) {
     return null;
   }
 
