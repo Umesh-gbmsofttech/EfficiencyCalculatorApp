@@ -80,7 +80,8 @@ jobs:
 
       - name: Restore google-services.json
         run: |
-          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > google-services.json
+          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/google-services.json
+          ls -lah android/app
 
       - name: Verify Expo Modules Wiring
         run: |
