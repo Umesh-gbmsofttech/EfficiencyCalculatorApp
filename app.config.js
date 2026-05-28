@@ -15,6 +15,14 @@ export default ({ config }) => ({
   plugins: [
     "expo-asset",
     [
+      "expo-splash-screen",
+      {
+        image: "./assets/logo.png",
+        resizeMode: "contain",
+        backgroundColor: "#F5F5F5"
+      }
+    ],
+    [
       "expo-location",
       {
         locationAlwaysAndWhenInUsePermission: "Allow Efficiency Calculator to access your location."

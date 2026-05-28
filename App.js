@@ -4,6 +4,7 @@ import { StyleSheet, Text, useColorScheme, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { Provider as PaperProvider } from "react-native-paper";
 import { StatusBar } from "expo-status-bar";
+import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -17,30 +18,39 @@ import { firebaseInitError, missingFirebaseEnv } from "./src/services/firebase";
 import { CompanyConfigProvider } from "./src/context/companyConfig";
 import { useCompanyConfig } from "./src/context/companyConfig";
 import { initLogger } from "./src/utils/logger";
+import { FEATURES } from "./src/config/features";
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+const LOCATION_FEATURE_ENABLED = FEATURES.LOCATION_RESTRICTION;
 
 const LocationAccessGate = () => {
   const { showSnackbar } = useUIStore();
-  const { permissionStatus, servicesEnabled, requestLocationAccess } = useCompanyConfig();
+  const { locationRestrictionEnabled, permissionStatus, servicesEnabled, requestLocationAccess } = useCompanyConfig();
   const permissionDenied = permissionStatus !== "granted";
 
   useEffect(() => {
+    if (!locationRestrictionEnabled) return;
     if (permissionStatus === "undetermined") {
       requestLocationAccess();
     }
-  }, [permissionStatus, requestLocationAccess]);
+  }, [locationRestrictionEnabled, permissionStatus, requestLocationAccess]);
 
   useEffect(() => {
+    if (!locationRestrictionEnabled) return;
     if (permissionStatus === "denied") {
       showSnackbar("Please enable location permission for attendance and production logging.", "warning");
     }
-  }, [permissionStatus, showSnackbar]);
+  }, [locationRestrictionEnabled, permissionStatus, showSnackbar]);
 
   useEffect(() => {
+    if (!locationRestrictionEnabled) return;
     if (!servicesEnabled) {
       showSnackbar("Please turn on device location to continue restricted actions.", "warning");
     }
-  }, [servicesEnabled, showSnackbar]);
+  }, [locationRestrictionEnabled, servicesEnabled, showSnackbar]);
 
+  if (!locationRestrictionEnabled) return null;
   if (permissionDenied) return null;
   return null;
 };
@@ -58,12 +68,19 @@ export default function App() {
   const showConfigError = Boolean(firebaseInitError);
   const [fontsLoaded] = useFonts(MaterialCommunityIcons.font);
   const [fontTimeoutReached, setFontTimeoutReached] = useState(false);
+  const appReady = fontsLoaded || fontTimeoutReached;
 
   useEffect(() => {
     if (fontsLoaded) return;
-    const timer = setTimeout(() => setFontTimeoutReached(true), 3500);
-    return () => clearTimeout(timer);
+    const timer = globalThis.setTimeout(() => setFontTimeoutReached(true), 3500);
+    return () => globalThis.clearTimeout(timer);
   }, [fontsLoaded]);
+
+  useEffect(() => {
+    if (appReady || showConfigError) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [appReady, showConfigError]);
 
   if (showConfigError) {
     console.error("[FirebaseConfig] Missing EXPO_PUBLIC variables", missingFirebaseEnv);
@@ -78,14 +95,14 @@ export default function App() {
       </SafeAreaProvider>
     );
   }
-  if (!fontsLoaded && !fontTimeoutReached) {
+  if (!appReady) {
     return null;
   }
 
   return (
     <SafeAreaProvider>
       <PaperProvider theme={appTheme}>
-        <CompanyConfigProvider>
+        <CompanyConfigProvider locationRestrictionEnabled={LOCATION_FEATURE_ENABLED}>
           <LocationAccessGate />
           <NavigationContainer theme={navigationTheme}>
             <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />

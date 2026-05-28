@@ -6,6 +6,7 @@ import AdminNavigator from "./AdminNavigator";
 import WorkerNavigator from "./WorkerNavigator";
 import SplashScreen from "../screens/SplashScreen";
 import { isAdmin } from "../utils/access";
+import { logInfo } from "../utils/logger";
 
 const Stack = createNativeStackNavigator();
 
@@ -22,7 +23,7 @@ const RootNavigator = () => {
     const snapshot = `${user.uid}:${role}:${isAdminUser ? "admin" : "operator"}`;
     if (lastLogRef.current === snapshot) return;
     lastLogRef.current = snapshot;
-    console.info("[RootNavigator] role resolved", { uid: user.uid, role, isAdmin: isAdminUser });
+    logInfo("RootNavigator", "role resolved", { uid: user.uid, role, isAdmin: isAdminUser });
   }, [isAdminUser, role, user?.uid]);
 
   if (initializing || waitingForRole) {
@@ -30,8 +31,8 @@ const RootNavigator = () => {
   }
 
   if (user && !role) {
-    console.info("[RootNavigator] missing role, waiting", { uid: user.uid });
-    return null;
+    logInfo("RootNavigator", "missing role, waiting", { uid: user.uid });
+    return <SplashScreen />;
   }
 
   return (

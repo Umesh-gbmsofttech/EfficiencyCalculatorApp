@@ -3,6 +3,7 @@ import { useCompanyConfig } from "../context/companyConfig";
 
 const useGeoFence = () => {
   const {
+    locationRestrictionEnabled,
     distanceFromCompanyMeters,
     isInsideCompanyRadius,
     isRefreshingLocation,
@@ -14,17 +15,19 @@ const useGeoFence = () => {
   } = useCompanyConfig();
 
   const error = useMemo(() => {
+    if (!locationRestrictionEnabled) return null;
     if (permissionStatus !== "granted") return "permission-denied";
     if (!servicesEnabled) return "services-disabled";
     if (distanceFromCompanyMeters == null) return "location-unavailable";
     if (!isInsideCompanyRadius) return "outside-radius";
     return null;
-  }, [distanceFromCompanyMeters, isInsideCompanyRadius, permissionStatus, servicesEnabled]);
+  }, [distanceFromCompanyMeters, isInsideCompanyRadius, locationRestrictionEnabled, permissionStatus, servicesEnabled]);
 
   return {
-    isInsideRadius: Boolean(isInsideCompanyRadius),
+    enabled: Boolean(locationRestrictionEnabled),
+    isInsideRadius: locationRestrictionEnabled ? Boolean(isInsideCompanyRadius) : true,
     distance: distanceFromCompanyMeters == null ? null : Number(distanceFromCompanyMeters),
-    loading: Boolean(isRefreshingLocation),
+    loading: locationRestrictionEnabled ? Boolean(isRefreshingLocation) : false,
     error,
     requestLocationAccess,
     refreshLocation,

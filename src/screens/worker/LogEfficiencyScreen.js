@@ -27,6 +27,7 @@ const LogEfficiencyScreen = () => {
   const { user, profile } = useAuthStore();
   const {
     companyLocation,
+    locationRestrictionEnabled,
     permissionStatus,
     servicesEnabled
   } = useCompanyConfig();
@@ -185,15 +186,15 @@ const LogEfficiencyScreen = () => {
         showSnackbar("Select machine first", "error");
         return;
       }
-      if (permissionStatus !== "granted") {
+      if (locationRestrictionEnabled && permissionStatus !== "granted") {
         showSnackbar("Grant location permission to submit logs.", "warning");
         return;
       }
-      if (!servicesEnabled) {
+      if (locationRestrictionEnabled && !servicesEnabled) {
         showSnackbar("Turn on device location to submit logs.", "warning");
         return;
       }
-      if (!isInsideRadius) {
+      if (locationRestrictionEnabled && !isInsideRadius) {
         showSnackbar(`You must be within ${companyLocation.radiusMeters} meters of company to mark attendance`, "error");
         return;
       }
@@ -249,7 +250,7 @@ const LogEfficiencyScreen = () => {
           setPickerVisible(true);
         }}
         style={styles.machineBtn}
-        disabled={!isInsideRadius || !canSubmitLogs}
+        disabled={(locationRestrictionEnabled && !isInsideRadius) || !canSubmitLogs}
       >
         {selectedMachine ? `Machine: ${selectedMachine.name}` : "Select Machine"}
       </Button>
@@ -299,7 +300,7 @@ const LogEfficiencyScreen = () => {
         <Text style={[styles.metricValue, { color: theme.colors.primary }]}>{formatPercent(efficiency)}</Text>
       </GlassCard>
 
-      {permissionStatus !== "granted" || !servicesEnabled ? (
+      {locationRestrictionEnabled && (permissionStatus !== "granted" || !servicesEnabled) ? (
         <GlassCard>
           <Text style={[styles.locationTitle, { color: theme.colors.onSurface }]}>Location Required</Text>
           <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
@@ -320,24 +321,28 @@ const LogEfficiencyScreen = () => {
         title="Save Log"
         onPress={handleSubmit(onSubmit)}
         loading={saving}
-        disabled={!isInsideRadius || permissionStatus !== "granted" || !servicesEnabled || !canSubmitLogs}
+        disabled={(locationRestrictionEnabled && (!isInsideRadius || permissionStatus !== "granted" || !servicesEnabled)) || !canSubmitLogs}
       />
-      <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
-        Company zone: {companyLocation.latitude}, {companyLocation.longitude} ({companyLocation.radiusMeters}m)
-      </Text>
-      <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
-        {geoLoading
-          ? "Checking your location..."
-          : distance == null
-            ? "Current distance: unavailable"
-            : `Current distance: ${Math.round(distance)}m (${isInsideRadius ? "inside" : "outside"})`}
-      </Text>
-      {geoError ? (
-        <Text style={[styles.locationHint, { color: theme.custom.colors.error }]}>Location status: {geoError}</Text>
+      {locationRestrictionEnabled ? (
+        <>
+          <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
+            Company zone: {companyLocation.latitude}, {companyLocation.longitude} ({companyLocation.radiusMeters}m)
+          </Text>
+          <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
+            {geoLoading
+              ? "Checking your location..."
+              : distance == null
+                ? "Current distance: unavailable"
+                : `Current distance: ${Math.round(distance)}m (${isInsideRadius ? "inside" : "outside"})`}
+          </Text>
+          {geoError ? (
+            <Text style={[styles.locationHint, { color: theme.custom.colors.error }]}>Location status: {geoError}</Text>
+          ) : null}
+          <Button compact mode="text" onPress={refreshLocation}>
+            Refresh Location
+          </Button>
+        </>
       ) : null}
-      <Button compact mode="text" onPress={refreshLocation}>
-        Refresh Location
-      </Button>
 
       <Portal>
         <Dialog visible={pickerVisible} onDismiss={() => setPickerVisible(false)} style={styles.pickerDialog}>

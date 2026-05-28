@@ -3,6 +3,7 @@ import NetInfo from "@react-native-community/netinfo";
 import useAuthStore from "../store/authStore";
 import useUIStore from "../store/uiStore";
 import { bootstrapAuthUser, logoutUser, subscribeToAuthState } from "../services/firebase/auth";
+import { logInfo, logWarn } from "../utils/logger";
 
 const useAuthBootstrap = () => {
   const { setUser, setProfile, setInitializing, setRoleLoaded, setLastKnownRole } = useAuthStore();
@@ -34,7 +35,7 @@ const useAuthBootstrap = () => {
             return;
           }
 
-          console.info("[AuthBootstrap] resolved user role", { uid: currentUser.uid, role: mergedProfile.role });
+          logInfo("AuthBootstrap", "resolved user role", { uid: currentUser.uid, role: mergedProfile.role });
           setProfile(mergedProfile);
           setRoleLoaded(true);
         } else {
@@ -48,7 +49,7 @@ const useAuthBootstrap = () => {
         } else if (error?.code === "failed-precondition") {
           showSnackbar("Role setup is incomplete. Contact admin.", "error");
         }
-        console.warn("[AuthBootstrap] auth bootstrap error", { code: error?.code || "unknown" });
+        logWarn("AuthBootstrap", "auth bootstrap error", { code: error?.code || "unknown" });
         setProfile(null);
         setRoleLoaded(false);
       } finally {

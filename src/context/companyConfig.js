@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { AppState, Linking } from "react-native";
 import * as Location from "expo-location";
 import { getDistanceMeters, isWithinRadius } from "../utils/geofence";
+import { FEATURES } from "../config/features";
 
 const CompanyConfigContext = createContext(null);
 
@@ -11,7 +12,7 @@ const toNumber = (value, fallback) => {
 };
 
 
-export const CompanyConfigProvider = ({ children }) => {
+export const CompanyConfigProvider = ({ children, locationRestrictionEnabled = FEATURES.LOCATION_RESTRICTION }) => {
   const companyLocation = useMemo(
     () => ({
       latitude: toNumber(process.env.EXPO_PUBLIC_COMPANY_LATITUDE, 0),
@@ -20,12 +21,19 @@ export const CompanyConfigProvider = ({ children }) => {
     }),
     []
   );
-  const [permissionStatus, setPermissionStatus] = useState("undetermined");
+  const [permissionStatus, setPermissionStatus] = useState(locationRestrictionEnabled ? "undetermined" : "granted");
   const [servicesEnabled, setServicesEnabled] = useState(true);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
 
   const refreshLocation = useCallback(async () => {
+    if (!locationRestrictionEnabled) {
+      setPermissionStatus("granted");
+      setServicesEnabled(true);
+      setCurrentLocation(null);
+      setIsRefreshingLocation(false);
+      return { ok: true, bypassed: true };
+    }
     try {
       setIsRefreshingLocation(true);
       const service = await Location.hasServicesEnabledAsync();
@@ -33,7 +41,7 @@ export const CompanyConfigProvider = ({ children }) => {
 
       const permission = await Location.getForegroundPermissionsAsync();
       setPermissionStatus(permission.status);
-      if (permission.status !== "granted" || !service) return;
+      if (permission.status !== "granted" || !service) return { ok: false, reason: !service ? "services-disabled" : "permission-denied" };
 
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced
@@ -44,12 +52,21 @@ export const CompanyConfigProvider = ({ children }) => {
         accuracy: position.coords.accuracy || null,
         timestamp: position.timestamp || Date.now()
       });
+      return { ok: true };
+    } catch (error) {
+      setCurrentLocation(null);
+      return { ok: false, reason: error?.code || "location-unavailable" };
     } finally {
       setIsRefreshingLocation(false);
     }
-  }, []);
+  }, [locationRestrictionEnabled]);
 
   const requestLocationAccess = useCallback(async () => {
+    if (!locationRestrictionEnabled) {
+      setPermissionStatus("granted");
+      setServicesEnabled(true);
+      return { ok: true, bypassed: true };
+    }
     const service = await Location.hasServicesEnabledAsync();
     setServicesEnabled(Boolean(service));
     if (!service) return { ok: false, reason: "services-disabled" };
@@ -60,13 +77,22 @@ export const CompanyConfigProvider = ({ children }) => {
 
     await refreshLocation();
     return { ok: true };
-  }, [refreshLocation]);
+  }, [locationRestrictionEnabled, refreshLocation]);
 
   const openDeviceLocationSettings = useCallback(async () => {
+    if (!locationRestrictionEnabled) return { ok: true, bypassed: true };
     await Linking.openSettings();
-  }, []);
+    return { ok: true };
+  }, [locationRestrictionEnabled]);
 
   useEffect(() => {
+    if (!locationRestrictionEnabled) {
+      setPermissionStatus("granted");
+      setServicesEnabled(true);
+      setCurrentLocation(null);
+      setIsRefreshingLocation(false);
+      return undefined;
+    }
     refreshLocation();
     const sub = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
@@ -74,7 +100,7 @@ export const CompanyConfigProvider = ({ children }) => {
       }
     });
     return () => sub.remove();
-  }, [refreshLocation]);
+  }, [locationRestrictionEnabled, refreshLocation]);
 
   const distanceFromCompanyMeters = useMemo(() => {
     if (!currentLocation) return null;
@@ -82,12 +108,14 @@ export const CompanyConfigProvider = ({ children }) => {
   }, [companyLocation, currentLocation]);
 
   const isInsideCompanyRadius = useMemo(() => {
+    if (!locationRestrictionEnabled) return true;
     return isWithinRadius({ from: currentLocation, target: companyLocation, radiusMeters: companyLocation.radiusMeters });
-  }, [companyLocation, currentLocation]);
+  }, [companyLocation, currentLocation, locationRestrictionEnabled]);
 
   const value = useMemo(
     () => ({
       companyLocation,
+      locationRestrictionEnabled,
       permissionStatus,
       servicesEnabled,
       currentLocation,
@@ -104,6 +132,7 @@ export const CompanyConfigProvider = ({ children }) => {
       distanceFromCompanyMeters,
       isInsideCompanyRadius,
       isRefreshingLocation,
+      locationRestrictionEnabled,
       openDeviceLocationSettings,
       permissionStatus,
       refreshLocation,

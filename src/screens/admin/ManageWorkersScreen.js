@@ -65,7 +65,6 @@ const ManageWorkersScreen = () => {
     }
     try {
       setLoading(true);
-      console.log("[Workers] role:", role);
       const response = await userService.list({ role, uid: user.uid });
       setWorkers(response);
     } catch (error) {

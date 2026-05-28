@@ -27,7 +27,7 @@ const WorkerAttendanceScreen = () => {
   const [range, setRange] = useState({ dateFrom: "", dateTo: "" });
   const [confirmType, setConfirmType] = useState(null);
   const { isInsideRadius } = useGeoFence();
-  const { currentLocation } = useCompanyConfig();
+  const { currentLocation, locationRestrictionEnabled } = useCompanyConfig();
 
   const role = profile?.role || "";
 
@@ -53,7 +53,7 @@ const WorkerAttendanceScreen = () => {
   useFocusEffect(React.useCallback(() => { load(false); }, [load]));
 
   const onCheckIn = async () => {
-    if (!isInsideRadius) {
+    if (locationRestrictionEnabled && !isInsideRadius) {
       showSnackbar("You must be within company premises", "warning");
       return;
     }
@@ -80,7 +80,7 @@ const WorkerAttendanceScreen = () => {
   };
 
   const onCheckOut = async () => {
-    if (!isInsideRadius) {
+    if (locationRestrictionEnabled && !isInsideRadius) {
       showSnackbar("You must be within company premises", "warning");
       return;
     }
@@ -122,8 +122,8 @@ const WorkerAttendanceScreen = () => {
           Time is captured automatically from current device time.
         </Text>
         <View style={styles.row}>
-          <Button mode="contained-tonal" onPress={() => setConfirmType("login")} disabled={!isInsideRadius}>Mark Login</Button>
-          <Button mode="outlined" onPress={() => setConfirmType("logout")} disabled={!isInsideRadius}>Mark Logout</Button>
+          <Button mode="contained-tonal" onPress={() => setConfirmType("login")} disabled={locationRestrictionEnabled && !isInsideRadius}>Mark Login</Button>
+          <Button mode="outlined" onPress={() => setConfirmType("logout")} disabled={locationRestrictionEnabled && !isInsideRadius}>Mark Logout</Button>
         </View>
       </GlassCard>
           </View>
