@@ -82,31 +82,11 @@ jobs:
         run: |
           echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > google-services.json
 
-      - name: Remove Existing Android Folder
-        run: rm -rf android
-
-      - name: Generate Android Native Project
-        run: npx expo prebuild --platform android --clean
-
       - name: Verify Expo Modules Wiring
         run: |
           test -f android/settings.gradle || (echo "android/settings.gradle missing" && exit 1)
           cat android/settings.gradle
           grep -q "useExpoModules()" android/settings.gradle || (echo "useExpoModules() missing from settings.gradle" && exit 1)
-
-      - name: Patch settings.gradle for expo-modules-core (CI safeguard)
-        run: |
-          SETTINGS_FILE="android/settings.gradle"
-          MODULE_DIR=$(node -e "const path=require('path'); try { const p=require.resolve('expo-modules-core/package.json', { paths:[process.cwd()] }); console.log(path.join(path.dirname(p),'android')); } catch(e) { try { const expoPkg=require.resolve('expo/package.json', { paths:[process.cwd()] }); console.log(path.join(path.dirname(expoPkg),'node_modules','expo-modules-core','android')); } catch(e2) { console.log(''); } }")
-          echo "Resolved expo-modules-core android dir: $MODULE_DIR"
-          if [ -n "$MODULE_DIR" ] && [ -d "$MODULE_DIR" ] && ! grep -q "include ':expo-modules-core'" "$SETTINGS_FILE"; then
-            echo "include ':expo-modules-core'" >> "$SETTINGS_FILE"
-            echo "project(':expo-modules-core').projectDir = new File('$MODULE_DIR')" >> "$SETTINGS_FILE"
-          else
-            echo "expo-modules-core folder not directly resolvable; skipping manual include patch."
-          fi
-          echo "----- settings.gradle (final) -----"
-          cat "$SETTINGS_FILE"
 
       - name: Place Keystore
         run: mv android-upload-key.keystore android/app/keystore.jks
