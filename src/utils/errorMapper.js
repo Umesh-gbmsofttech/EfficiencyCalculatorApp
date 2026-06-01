@@ -10,7 +10,9 @@ const firebaseErrorMap = {
   "auth/operation-not-allowed": "Something went wrong. Please try again.",
   "auth/operation-not-supported-in-this-environment": "Something went wrong. Please try again.",
   "permission-denied": "Permission denied.",
-  unavailable: "Network unavailable. Please try again.",
+  "attendance-required": "Mark attendance before saving a report.",
+  "machine-cycle-time-required": "Machine cycle time is required before saving a report.",
+  "unavailable": "Network unavailable. Please try again.",
   "failed-precondition": "Loading data, please wait..."
 };
 
@@ -21,8 +23,8 @@ export const mapErrorMessage = (error) => {
       ? "Something went wrong. Please try again."
       : error;
   }
-  if (error?.code && firebaseErrorMap[error.code]) {
-    return firebaseErrorMap[error.code];
+  if (error?.code && firebaseErrorMap[ error.code ]) {
+    return firebaseErrorMap[ error.code ];
   }
   if (String(error?.message || "").toLowerCase().includes("operation not available")) {
     return "Something went wrong. Please try again.";

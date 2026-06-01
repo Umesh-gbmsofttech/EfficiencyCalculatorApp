@@ -1,6 +1,7 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "react-native-paper";
@@ -10,6 +11,8 @@ const Header = ({ title, subtitle, onRightPress, rightIcon = "logout", showRight
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const { profile, user } = useAuthStore();
+  const headerBorderColor = theme.dark ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.28)";
+  const headerSubtleText = theme.dark ? "#DBEAFE" : "#EFF6FF";
   const fullName = profile?.fullName || user?.displayName || "User";
   const initials = fullName
     .split(" ")
@@ -26,20 +29,27 @@ const Header = ({ title, subtitle, onRightPress, rightIcon = "logout", showRight
         style={[
           styles.blur,
           {
-            backgroundColor: theme.custom.colors.glass,
-            borderColor: theme.dark ? theme.custom.colors.border : "transparent",
-            borderWidth: theme.dark ? 0.8 : 0,
-            shadowColor: theme.dark ? "#020617" : "#94A3B8",
-            shadowOpacity: theme.dark ? 0.2 : 0.08
+            backgroundColor: theme.colors.primary,
+            borderColor: headerBorderColor,
+            borderWidth: 0.8,
+            shadowColor: theme.dark ? "#020617" : theme.colors.primary,
+            shadowOpacity: theme.dark ? 0.22 : 0.14
           }
         ]}
       >
+        <LinearGradient
+          pointerEvents="none"
+          colors={[theme.colors.primary, theme.custom.colors.accent]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
         <View style={styles.textWrap}>
-          <Text style={[styles.title, { color: theme.colors.onSurface }]} numberOfLines={1}>
+          <Text style={[styles.title, { color: "#FFFFFF" }]} numberOfLines={1}>
             {title}
           </Text>
           {subtitle ? (
-            <Text style={[styles.subtitle, { color: theme.custom.colors.textMuted }]} numberOfLines={1}>
+            <Text style={[styles.subtitle, { color: headerSubtleText }]} numberOfLines={1}>
               {subtitle}
             </Text>
           ) : null}
@@ -51,15 +61,16 @@ const Header = ({ title, subtitle, onRightPress, rightIcon = "logout", showRight
               style={[
                 styles.iconBtn,
                 {
-                  borderColor: theme.dark ? theme.custom.colors.border : "transparent",
-                  borderWidth: theme.dark ? 0.8 : 0
+                  backgroundColor: "rgba(255,255,255,0.14)",
+                  borderColor: "rgba(255,255,255,0.18)",
+                  borderWidth: 0.8
                 }
               ]}
             >
-              <MaterialCommunityIcons name={rightIcon} size={18} color={theme.colors.onSurface} />
+              <MaterialCommunityIcons name={rightIcon} size={18} color="#FFFFFF" />
             </Pressable>
           ) : null}
-          <View style={[styles.avatar, { backgroundColor: theme.colors.primary }]}>
+          <View style={[styles.avatar, { backgroundColor: "rgba(255,255,255,0.2)" }]}>
             <Text style={styles.avatarText}>{initials || "U"}</Text>
           </View>
         </View>
@@ -75,6 +86,7 @@ const styles = StyleSheet.create({
   },
   blur: {
     borderRadius: 14,
+    overflow: "hidden",
     paddingHorizontal: 12,
     paddingVertical: 10,
     flexDirection: "row",

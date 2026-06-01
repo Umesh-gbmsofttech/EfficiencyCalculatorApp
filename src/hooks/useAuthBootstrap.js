@@ -3,6 +3,8 @@ import NetInfo from "@react-native-community/netinfo";
 import useAuthStore from "../store/authStore";
 import useUIStore from "../store/uiStore";
 import { bootstrapAuthUser, logoutUser, subscribeToAuthState } from "../services/firebase/auth";
+import ensureFirestoreBootstrap from "../services/firebase/bootstrapService";
+import { isAdmin } from "../utils/access";
 import { logInfo, logWarn } from "../utils/logger";
 
 const useAuthBootstrap = () => {
@@ -38,6 +40,11 @@ const useAuthBootstrap = () => {
           logInfo("AuthBootstrap", "resolved user role", { uid: currentUser.uid, role: mergedProfile.role });
           setProfile(mergedProfile);
           setRoleLoaded(true);
+          if (isAdmin(mergedProfile.role)) {
+            ensureFirestoreBootstrap({ actorUid: currentUser.uid }).catch((error) => {
+              logWarn("FirestoreBootstrap", "collection check skipped", { code: error?.code || "unknown" });
+            });
+          }
         } else {
           setProfile(null);
           setRoleLoaded(true);

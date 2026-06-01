@@ -13,7 +13,8 @@ const ReportFilters = ({
   workerMenu,
   setWorkerMenu,
   machineMenu,
-  setMachineMenu
+  setMachineMenu,
+  onRangeChange
 }) => {
   const theme = useTheme();
   return (
@@ -88,6 +89,10 @@ const ReportFilters = ({
 
       <GlobalCalendar
         onRangeChange={(next) => {
+          if (onRangeChange) {
+            onRangeChange(next);
+            return;
+          }
           onChange("dateFrom", next.dateFrom);
           onChange("dateTo", next.dateTo);
         }}

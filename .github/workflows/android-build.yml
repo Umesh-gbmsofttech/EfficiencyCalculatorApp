@@ -92,6 +92,10 @@ jobs:
       - name: Place Keystore
         run: mv android-upload-key.keystore android/app/keystore.jks
 
+      - name: Verify Signing Config
+        run: |
+          ls -lah android/app/keystore.jks
+
       - name: Make Gradle Wrapper Executable
         run: chmod +x android/gradlew
 

@@ -7,6 +7,7 @@ const path = require("path");
 const root = path.resolve(__dirname, "..");
 const stopOnly = process.argv.includes("--stop-only");
 const requiredNdkVersion = "26.1.10909125";
+const useSubstDrive = process.env.ANDROID_BUILD_USE_SUBST === "1";
 const substDriveLetters = ["R", "S", "T", "U", "V", "W", "X", "Y", "Z"];
 
 const run = (command, args, options = {}) => {
@@ -124,6 +125,15 @@ if (process.platform !== "win32") {
   run("./gradlew", ["--stop"], { cwd: path.join(root, "android") });
   if (stopOnly) process.exit(0);
   run("./gradlew", ["assembleRelease"], { cwd: path.join(root, "android") });
+  process.exit(0);
+}
+
+if (!useSubstDrive) {
+  const androidDir = path.join(root, "android");
+  run("cmd.exe", ["/d", "/c", "gradlew.bat --stop"], { cwd: androidDir });
+  if (!stopOnly) {
+    run("cmd.exe", ["/d", "/c", "gradlew.bat assembleRelease"], { cwd: androidDir });
+  }
   process.exit(0);
 }
 

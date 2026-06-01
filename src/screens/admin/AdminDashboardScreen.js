@@ -4,6 +4,7 @@ import { LineChart } from "react-native-chart-kit";
 import { useTheme } from "react-native-paper";
 import { useFocusEffect } from "@react-navigation/native";
 import { useNavigation } from "@react-navigation/native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import StatCard from "../../components/StatCard";
 import ScreenContainer from "../../components/ScreenContainer";
 import GlassCard from "../../components/GlassCard";
@@ -16,7 +17,7 @@ import useDashboardData from "../../hooks/useDashboardData";
 
 const AdminDashboardScreen = () => {
   const { stats, trend, attendance: todayAttendance, load } = useDashboardData({ includeAttendance: true });
-  const [refreshing, setRefreshing] = useState(false);
+  const [ refreshing, setRefreshing ] = useState(false);
   const { showSnackbar } = useUIStore();
   const theme = useTheme();
   const navigation = useNavigation();
@@ -28,29 +29,29 @@ const AdminDashboardScreen = () => {
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
     }
-  }, [load, showSnackbar]);
+  }, [ load, showSnackbar ]);
 
   useFocusEffect(
     useCallback(() => {
       loadDashboard();
-    }, [loadDashboard])
+    }, [ loadDashboard ])
   );
 
   const chartData = useMemo(() => {
-    const points = trend.length ? trend.map((entry) => Number(entry.efficiency || 0)) : [0, 0, 0, 0, 0, 0, 0];
+    const points = trend.length ? trend.map((entry) => Number(entry.efficiency || 0)) : [ 0, 0, 0, 0, 0, 0, 0 ];
     return {
       labels: points.map((_, index) => `${index + 1}`),
-      datasets: [{ data: points }]
+      datasets: [ { data: points } ]
     };
-  }, [trend]);
+  }, [ trend ]);
 
   const quickActions = [
-    { title: "Add Worker", route: "ManageWorkers" },
-    { title: "Manage Machines", route: "ManageMachines" },
-    { title: "Manage Parts", route: "ManageParts" },
-    { title: "View Reports", route: "ReportsCenter" },
-    { title: "Salary System", route: "SalarySystem" },
-    { title: "Attendance Control", route: "AttendanceControl" }
+    { title: "Manage Workers", route: "ManageWorkers", icon: "account-group-outline" },
+    { title: "Manage Machines", route: "ManageMachines", icon: "factory" },
+    { title: "Manage Parts", route: "ManageParts", icon: "cog-outline" },
+    { title: "View Reports", route: "ReportsCenter", icon: "file-chart-outline" },
+    { title: "Salary System", route: "SalarySystem", icon: "cash-multiple" },
+    { title: "Attendance Control", route: "AttendanceControl", icon: "calendar-check-outline" }
   ];
 
   return (
@@ -58,51 +59,56 @@ const AdminDashboardScreen = () => {
       scroll
       refreshControl={
         <RefreshControl
-          refreshing={refreshing}
-          onRefresh={async () => {
+          refreshing={ refreshing }
+          onRefresh={ async () => {
             setRefreshing(true);
             await loadDashboard();
             setRefreshing(false);
-          }}
+          } }
         />
       }
     >
-      <View style={styles.row}>
-        <View style={styles.col}>
-          <StatCard title="Workers" value={stats.workers} />
+      <View style={ styles.row }>
+        <View style={ styles.col }>
+          <StatCard title="Workers" value={ stats.workers } />
         </View>
-        <View style={styles.col}>
-          <StatCard title="Machines" value={stats.machines} />
-        </View>
-      </View>
-      <View style={styles.row}>
-        <View style={styles.col}>
-          <StatCard title="Today's Reports" value={stats.todayReports || 0} />
-        </View>
-        <View style={styles.col}>
-          <StatCard title="Monthly Reports" value={stats.monthlyReports || 0} />
+        <View style={ styles.col }>
+          <StatCard title="Machines" value={ stats.machines } />
         </View>
       </View>
-      <StatCard title="Total Reports" value={stats.reports || stats.logs} caption="All submitted efficiency records" />
+      <View style={ styles.row }>
+        <View style={ styles.col }>
+          <StatCard title="Today's Reports" value={ stats.todayReports || 0 } />
+        </View>
+        <View style={ styles.col }>
+          <StatCard title="Monthly Reports" value={ stats.monthlyReports || 0 } />
+        </View>
+      </View>
+      <StatCard title="Total Reports" value={ stats.reports || stats.logs } caption="All submitted efficiency records" />
       <GlassCard>
-        <Text style={[styles.heading, { color: theme.colors.onSurface }]}>Quick Actions</Text>
-        <View style={styles.quickGrid}>
-          {quickActions.map((action) => (
-            <View key={action.route} style={styles.quickCell}>
-              <PrimaryButton title={action.title} onPress={() => navigation.navigate(action.route)} style={styles.quickBtn} />
+        <Text style={ [ styles.heading, { color: theme.colors.onSurface } ] }>Quick Actions</Text>
+        <View style={ styles.quickGrid }>
+          { quickActions.map((action) => (
+            <View key={ action.route } style={ styles.quickCell }>
+              <PrimaryButton
+                title={ action.title }
+                onPress={ () => navigation.navigate(action.route) }
+                style={ styles.quickBtn }
+                leftIcon={ <MaterialCommunityIcons name={ action.icon } size={ 18 } color="#FFFFFF" /> }
+              />
             </View>
-          ))}
+          )) }
         </View>
       </GlassCard>
 
       <GlassCard>
-        <Text style={[styles.heading, { color: theme.colors.onSurface }]}>7-Point Efficiency Trend</Text>
-        <View style={[styles.chartWrap, { backgroundColor: theme.colors.surfaceVariant || theme.colors.surface }]}>
+        <Text style={ [ styles.heading, { color: theme.colors.onSurface } ] }>7-Point Efficiency Graph</Text>
+        <View style={ [ styles.chartWrap, { backgroundColor: theme.colors.surfaceVariant || theme.colors.surface } ] }>
           <LineChart
-            data={chartData}
-            width={Math.max(width - 76, 260)}
-            height={220}
-            chartConfig={{
+            data={ chartData }
+            width={ Math.max(width - 76, 260) }
+            height={ 220 }
+            chartConfig={ {
               backgroundGradientFrom: "transparent",
               backgroundGradientTo: "transparent",
               decimalPlaces: 0,
@@ -117,56 +123,56 @@ const AdminDashboardScreen = () => {
                 stroke: theme.custom.colors.border,
                 strokeWidth: 1
               }
-            }}
+            } }
             withInnerLines
-            withOuterLines={false}
-            withVerticalLines={false}
+            withOuterLines={ false }
+            withVerticalLines={ false }
             bezier
-            style={styles.chart}
+            style={ styles.chart }
           />
         </View>
       </GlassCard>
 
-      {trend.length ? (
+      { trend.length ? (
         <GlassCard>
-          <Text style={[styles.heading, { color: theme.colors.onSurface }]}>Recent Reports</Text>
-          {trend
+          <Text style={ [ styles.heading, { color: theme.colors.onSurface } ] }>Recent Reports</Text>
+          { trend
             .slice(-4)
             .reverse()
             .map((entry) => (
-              <View key={entry.id} style={styles.logRow}>
-                <RemoteImage uri={entry.machineImageUrl} fallbackSource={MACHINE_PLACEHOLDER} style={styles.logThumb} />
-                <View style={styles.logMeta}>
-                  <Text style={[styles.logTitle, { color: theme.colors.onSurface }]}>{entry.machineName || "Machine"}</Text>
-                  <Text style={[styles.logText, { color: theme.custom.colors.textMuted }]}>
-                    {entry.workerName || "Worker"} | {formatPercent(entry.efficiency)}
+              <View key={ entry.id } style={ styles.logRow }>
+                <RemoteImage uri={ entry.machineImageUrl } fallbackSource={ MACHINE_PLACEHOLDER } style={ styles.logThumb } />
+                <View style={ styles.logMeta }>
+                  <Text style={ [ styles.logTitle, { color: theme.colors.onSurface } ] }>{ entry.machineName || "Machine" }</Text>
+                  <Text style={ [ styles.logText, { color: theme.custom.colors.textMuted } ] }>
+                    { entry.workerName || "Worker" } | { formatPercent(entry.efficiency) }
                   </Text>
                 </View>
               </View>
-            ))}
+            )) }
         </GlassCard>
-      ) : null}
+      ) : null }
       <GlassCard>
-        <Text style={[styles.heading, { color: theme.colors.onSurface }]}>Today Logged Workers</Text>
-        {todayAttendance.length ? (
+        <Text style={ [ styles.heading, { color: theme.colors.onSurface } ] }>Today Logged Workers</Text>
+        { todayAttendance.length ? (
           todayAttendance.slice(0, 8).map((entry) => (
-            <View key={entry.id} style={styles.logRow}>
-              <View style={[styles.logThumb, { alignItems: "center", justifyContent: "center" }]}>
-                <Text style={{ color: theme.colors.onSurface, fontSize: 12, fontWeight: "700" }}>
-                  {(entry.userName || "W").slice(0, 1).toUpperCase()}
+            <View key={ entry.id } style={ styles.logRow }>
+              <View style={ [ styles.logThumb, { alignItems: "center", justifyContent: "center" } ] }>
+                <Text style={ { color: theme.colors.onSurface, fontSize: 12, fontWeight: "700" } }>
+                  { (entry.userName || "W").slice(0, 1).toUpperCase() }
                 </Text>
               </View>
-              <View style={styles.logMeta}>
-                <Text style={[styles.logTitle, { color: theme.colors.onSurface }]}>{entry.userName || "Worker"}</Text>
-                <Text style={[styles.logText, { color: theme.custom.colors.textMuted }]}>
-                  Login: {entry.loginTime?.toDate?.()?.toLocaleTimeString?.() || "-"} | Logout: {entry.logoutTime?.toDate?.()?.toLocaleTimeString?.() || "-"} | Hours: {entry.totalHours || 0}
+              <View style={ styles.logMeta }>
+                <Text style={ [ styles.logTitle, { color: theme.colors.onSurface } ] }>{ entry.userName || "Worker" }</Text>
+                <Text style={ [ styles.logText, { color: theme.custom.colors.textMuted } ] }>
+                  Login: { entry.loginTime?.toDate?.()?.toLocaleTimeString?.() || "-" } | Logout: { entry.logoutTime?.toDate?.()?.toLocaleTimeString?.() || "-" } | Hours: { entry.totalHours || 0 }
                 </Text>
               </View>
             </View>
           ))
         ) : (
-          <Text style={[styles.logText, { color: theme.custom.colors.textMuted }]}>No worker has logged attendance today.</Text>
-        )}
+          <Text style={ [ styles.logText, { color: theme.custom.colors.textMuted } ] }>No worker has logged attendance today.</Text>
+        ) }
       </GlassCard>
     </ScreenContainer>
   );

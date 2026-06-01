@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Dialog, Portal, useTheme } from "react-native-paper";
-import { useFocusEffect } from "@react-navigation/native";
 import ReportFilters from "../../components/ReportFilters";
 import EmptyState from "../../components/EmptyState";
 import GlassCard from "../../components/GlassCard";
@@ -15,6 +14,7 @@ import { formatDateTime, formatPercent, formatTimeOnly } from "../../utils/forma
 import useUIStore from "../../store/uiStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
 import { calculateReportMetrics } from "../../utils/calculations";
+import { applyDatePreset } from "../../utils/timeRange";
 import { hasAccess } from "../../utils/access";
 import machineService from "../../services/firebase/machineService";
 import userService from "../../services/firebase/userService";
@@ -35,8 +35,7 @@ const AdminReportsScreen = () => {
     search: "",
     workerId: "",
     machineId: "",
-    dateFrom: "",
-    dateTo: ""
+    ...applyDatePreset("day")
   });
   const [editVisible, setEditVisible] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -61,12 +60,6 @@ const AdminReportsScreen = () => {
     filters,
     enabled: Boolean(user?.uid)
   });
-
-  useFocusEffect(
-    React.useCallback(() => {
-      refresh();
-    }, [refresh])
-  );
 
   useEffect(() => {
     const loadFilterData = async () => {
@@ -187,6 +180,7 @@ const AdminReportsScreen = () => {
               machineMenu={machineMenu}
               setMachineMenu={setMachineMenu}
               onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
+              onRangeChange={(next) => setFilters((prev) => ({ ...prev, dateFrom: next.dateFrom, dateTo: next.dateTo }))}
             />
             <Button
               mode="contained-tonal"

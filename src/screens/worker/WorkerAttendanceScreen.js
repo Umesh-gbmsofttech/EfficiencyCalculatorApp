@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Button, Dialog, Portal, useTheme } from "react-native-paper";
 import { useFocusEffect } from "@react-navigation/native";
@@ -10,6 +10,7 @@ import GlassCard from "../../components/GlassCard";
 import EmptyState from "../../components/EmptyState";
 import GlobalCalendar from "../../components/GlobalCalendar";
 import { mapErrorMessage } from "../../utils/errorMapper";
+import { applyDatePreset } from "../../utils/timeRange";
 import useGeoFence from "../../hooks/useGeoFence";
 import { getShiftDate, getShiftType } from "../../utils/shift";
 import { useCompanyConfig } from "../../context/companyConfig";
@@ -25,15 +26,22 @@ const WorkerAttendanceScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [shiftType, setShiftType] = useState("day");
-  const [range, setRange] = useState({ dateFrom: "", dateTo: "" });
+  const [range, setRange] = useState(() => applyDatePreset("day"));
   const [confirmType, setConfirmType] = useState(null);
+  const requestRef = useRef(0);
   const { isInsideRadius } = useGeoFence();
   const { currentLocation, locationRestrictionEnabled } = useCompanyConfig();
 
   const role = profile?.role || "";
 
   const load = useCallback(async (isPull = false) => {
-    if (!user?.uid) return;
+    if (!user?.uid) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+    requestRef.current += 1;
+    const reqId = requestRef.current;
     if (isPull) setRefreshing(true); else setLoading(true);
     try {
       const data = await attendanceService.list({
@@ -42,13 +50,17 @@ const WorkerAttendanceScreen = () => {
         from: range.dateFrom,
         to: range.dateTo
       });
+      if (reqId !== requestRef.current) return;
       setRecords(data);
       setVisibleCount(20);
     } catch (error) {
+      if (reqId !== requestRef.current) return;
       showSnackbar(mapErrorMessage(error), "error");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (reqId === requestRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [range.dateFrom, range.dateTo, role, showSnackbar, user?.uid]);
 

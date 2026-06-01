@@ -358,7 +358,7 @@ export const createEfficiencyLog = async ({
   });
   if (!metrics.cycleTimeMinutes || metrics.cycleTimeMinutes <= 0) {
     const err = new Error("Machine cycle time is required before submitting reports.");
-    err.code = "failed-precondition";
+    err.code = "machine-cycle-time-required";
     throw err;
   }
 
@@ -371,7 +371,7 @@ export const createEfficiencyLog = async ({
   const attendance = await getAttendanceForUserShift({ userId: worker.uid, shiftDate });
   if (!attendance) {
     const err = new Error("Attendance required before submitting production logs.");
-    err.code = "failed-precondition";
+    err.code = "attendance-required";
     throw err;
   }
   const actual = actualQty === null ? Number(outputProduced) : Number(actualQty);

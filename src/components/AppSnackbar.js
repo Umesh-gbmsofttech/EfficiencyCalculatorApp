@@ -14,24 +14,24 @@ const AppSnackbar = () => {
     warning: { bg: "#F59E0B", text: "#1F2937" },
     info: { bg: "#1E293B", text: "#F8FAFC" }
   };
-  const tone = toneByType[snackbar.type] || toneByType.info;
+  const tone = toneByType[ snackbar.type ] || toneByType.info;
 
   return (
     <Portal>
       <Snackbar
-        visible={snackbar.visible}
-        onDismiss={hideSnackbar}
-        duration={3200}
-        wrapperStyle={[styles.wrapper, { bottom: insets.bottom + 12 }]}
-        style={[
+        visible={ snackbar.visible }
+        onDismiss={ hideSnackbar }
+        duration={ 3200 }
+        wrapperStyle={ [ styles.wrapper, { bottom: insets.bottom + 12 } ] }
+        style={ [
           styles.snackbar,
           {
             backgroundColor: tone.bg,
             shadowColor: theme.dark ? "#020617" : "#1E293B"
           }
-        ]}
+        ] }
       >
-        <Text style={[styles.message, { color: tone.text }]}>{snackbar.message}</Text>
+        <Text style={ [ styles.message, { color: tone.text } ] }>{ snackbar.message }</Text>
       </Snackbar>
     </Portal>
   );
@@ -40,21 +40,29 @@ const AppSnackbar = () => {
 const styles = StyleSheet.create({
   wrapper: {
     position: "absolute",
-    left: 12,
-    right: 12,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: "center", // center horizontally
     zIndex: 9999
   },
+
   snackbar: {
+    width: "90%",         // reduce width
+    maxWidth: 400,        // optional limit for tablets
     borderRadius: 12,
     shadowOpacity: 0.2,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
-    elevation: 8
+    elevation: 8,
+    alignSelf: "center"
   },
+
   message: {
     fontSize: 14,
     fontWeight: "600",
-    lineHeight: 20
+    lineHeight: 20,
+    flexWrap: "wrap"
   }
 });
 

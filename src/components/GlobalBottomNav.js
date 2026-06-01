@@ -31,6 +31,11 @@ const GlobalBottomNav = () => {
   const adminUser = isAdmin(profile?.role);
   const stackRoute = adminUser ? "AdminHomeTabs" : "WorkerHomeTabs";
   const items = adminUser ? ADMIN_ITEMS : WORKER_ITEMS;
+  const barColor = theme.dark ? "#171717" : "#FFFFFF";
+  const barBorderColor = theme.dark ? "rgba(147,197,253,0.3)" : "rgba(37,99,235,0.18)";
+  const activeColor = theme.dark ? "#93C5FD" : "#2563EB";
+  const inactiveColor = theme.dark ? "#CBD5E1" : "#475569";
+  const activeBackground = theme.dark ? "rgba(96,165,250,0.18)" : "rgba(37,99,235,0.1)";
 
   const navigateTo = (screen) => {
     let target = navigation;
@@ -66,8 +71,8 @@ const GlobalBottomNav = () => {
     <View pointerEvents="box-none" style={[styles.shell, { paddingBottom: Math.max(insets.bottom, 8) }]}>
       <BlurView
         intensity={55}
-        tint={theme.custom.colors.glassTint}
-        style={[styles.container, { backgroundColor: theme.custom.colors.glass, borderColor: theme.custom.colors.border }]}
+        tint={theme.dark ? "dark" : "light"}
+        style={[styles.container, { backgroundColor: barColor, borderColor: barBorderColor }]}
       >
         {items.map((item) => {
           const focused = route.name === item.route;
@@ -80,16 +85,16 @@ const GlobalBottomNav = () => {
               style={[
                 styles.item,
                 focused && {
-                  backgroundColor: theme.dark ? "rgba(59,130,246,0.22)" : "rgba(37,99,235,0.12)"
+                  backgroundColor: activeBackground
                 }
               ]}
             >
               <MaterialCommunityIcons
                 name={item.icon}
                 size={20}
-                color={focused ? theme.colors.primary : theme.custom.colors.textMuted}
+                color={focused ? activeColor : inactiveColor}
               />
-              <Text style={[styles.label, { color: focused ? theme.colors.primary : theme.custom.colors.textMuted }]} numberOfLines={1}>
+              <Text style={[styles.label, { color: focused ? activeColor : inactiveColor }]} numberOfLines={1}>
                 {item.label}
               </Text>
             </Pressable>

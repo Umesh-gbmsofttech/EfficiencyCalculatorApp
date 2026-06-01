@@ -1,6 +1,9 @@
 ## download latest app
 https://github.com/Umesh-gbmsofttech/EfficiencyCalculatorApp/releases/latest
 
+
+## user/operator must mark their attendance to submit report
+
 🚀 Efficiency Calculator
 
 Role-based worker–machine efficiency tracking app built with Expo React Native + Firebase.

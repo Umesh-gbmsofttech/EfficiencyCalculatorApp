@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Button, Dialog, Portal, Switch, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,6 +8,7 @@ import GlobalCalendar from "../../components/GlobalCalendar";
 import EmptyState from "../../components/EmptyState";
 import useUIStore from "../../store/uiStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
+import { applyDatePreset } from "../../utils/timeRange";
 import attendanceService from "../../services/firebase/attendanceService";
 import { exportTablePdf } from "../../utils/pdfExport";
 
@@ -17,19 +18,24 @@ const AdminAttendanceScreen = () => {
   const insets = useSafeAreaInsets();
   const [records, setRecords] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [range, setRange] = useState({ dateFrom: "", dateTo: "" });
+  const [range, setRange] = useState(() => applyDatePreset("day"));
   const [editing, setEditing] = useState(null);
   const [present, setPresent] = useState(true);
+  const requestRef = useRef(0);
 
   const load = useCallback(async () => {
+    requestRef.current += 1;
+    const reqId = requestRef.current;
     setRefreshing(true);
     try {
       const data = await attendanceService.list({ role: "admin", from: range.dateFrom, to: range.dateTo });
+      if (reqId !== requestRef.current) return;
       setRecords(data);
     } catch (error) {
+      if (reqId !== requestRef.current) return;
       showSnackbar(mapErrorMessage(error), "error");
     } finally {
-      setRefreshing(false);
+      if (reqId === requestRef.current) setRefreshing(false);
     }
   }, [range.dateFrom, range.dateTo, showSnackbar]);
 
