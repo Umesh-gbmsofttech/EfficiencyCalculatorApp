@@ -8,6 +8,13 @@ export const formatDateTime = (value) => {
   return dayjs(value).format("DD MMM YYYY, hh:mm A");
 };
 
+export const formatTimeOnly = (value) => {
+  if (!value) return "-";
+  const date = value?.toDate ? value.toDate() : new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return dayjs(date).format("HH:mm");
+};
+
 export const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
 
 export const toDateRange = (dateString, end = false) => {

@@ -21,7 +21,7 @@ const useDashboardData = ({ uid, includeAttendance = false }) => {
     setLoading(true);
     try {
       const tasks = [dashboardRepository.getStats(uid), dashboardRepository.getTrend(uid ? { uid } : {})];
-      if (includeAttendance) tasks.push(dashboardRepository.getTodayAttendance({ role: "operator" }));
+      if (includeAttendance) tasks.push(dashboardRepository.getTodayAttendance());
       const settled = await Promise.allSettled(tasks);
       if (reqId !== requestRef.current) return;
       const statsResult = settled[0]?.status === "fulfilled" ? settled[0].value : { workers: 0, machines: 0, logs: 0 };

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Dialog, Portal, useTheme } from "react-native-paper";
+import { useFocusEffect } from "@react-navigation/native";
 import ReportFilters from "../../components/ReportFilters";
 import EmptyState from "../../components/EmptyState";
 import GlassCard from "../../components/GlassCard";
@@ -10,15 +11,16 @@ import ScreenContainer from "../../components/ScreenContainer";
 import useAuthStore from "../../store/authStore";
 import AnimatedInput from "../../components/AnimatedInput";
 import usePaginatedLogs from "../../hooks/usePaginatedLogs";
-import { formatDateTime, formatPercent } from "../../utils/formatters";
+import { formatDateTime, formatPercent, formatTimeOnly } from "../../utils/formatters";
 import useUIStore from "../../store/uiStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
-import { calculateEfficiency, calculateExpectedOutput } from "../../utils/calculations";
+import { calculateReportMetrics } from "../../utils/calculations";
 import { hasAccess } from "../../utils/access";
 import machineService from "../../services/firebase/machineService";
 import userService from "../../services/firebase/userService";
 import logService from "../../services/firebase/logService";
 import { logInfo } from "../../utils/logger";
+import { exportReportsPdf } from "../../utils/pdfExport";
 
 const AdminReportsScreen = () => {
   const { user, profile } = useAuthStore();
@@ -59,6 +61,12 @@ const AdminReportsScreen = () => {
     filters,
     enabled: Boolean(user?.uid)
   });
+
+  useFocusEffect(
+    React.useCallback(() => {
+      refresh();
+    }, [refresh])
+  );
 
   useEffect(() => {
     const loadFilterData = async () => {
@@ -124,20 +132,22 @@ const AdminReportsScreen = () => {
         showSnackbar("Hours must be positive and output/downtime cannot be negative.", "warning");
         return;
       }
-      const machine = machines.find((m) => m.id === editingLog.machineId);
-      const productiveHours = Math.max(0, workingHours - downtime);
-      const fallbackRate = productiveHours > 0 ? Number(editingLog.expectedOutput || 0) / productiveHours : 0;
-      const expectedPerHour = Number(machine?.expectedOutputPerHour ?? fallbackRate);
-      const expectedOutput = calculateExpectedOutput(expectedPerHour, workingHours, downtime);
-      const efficiency = calculateEfficiency(outputProduced, expectedOutput);
+      const machine = machines.find((m) => m.id === editingLog.machineId) || editingLog;
+      const metrics = calculateReportMetrics({
+        machine,
+        workingHours,
+        downtime,
+        outputProduced,
+        actualQty,
+        cycleTimeMinutes: Number(editForm.cycleTime || machine.cycleTimeMinutes || editingLog.cycleTimeMinutes || 0)
+      });
       setEditSaving(true);
       await logService.update(editingLog.id, {
         workingHours,
         outputProduced,
         downtime,
         machineDowntime: downtime,
-        expectedOutput,
-        efficiency,
+        ...metrics,
         partName: editForm.partName,
         operationCode: editForm.operationCode,
         cycleTime,
@@ -167,18 +177,34 @@ const AdminReportsScreen = () => {
         windowSize={7}
         removeClippedSubviews
         ListHeaderComponent={
-          <ReportFilters
-            workers={workers}
-            machines={machines}
-            filters={filters}
-            workerMenu={workerMenu}
-            setWorkerMenu={setWorkerMenu}
-            machineMenu={machineMenu}
-            setMachineMenu={setMachineMenu}
-            onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
-          />
+          <>
+            <ReportFilters
+              workers={workers}
+              machines={machines}
+              filters={filters}
+              workerMenu={workerMenu}
+              setWorkerMenu={setWorkerMenu}
+              machineMenu={machineMenu}
+              setMachineMenu={setMachineMenu}
+              onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
+            />
+            <Button
+              mode="contained-tonal"
+              icon="file-pdf-box"
+              style={styles.exportBtn}
+              onPress={async () => {
+                try {
+                  await exportReportsPdf({ title: "Efficiency Calculator Reports", subtitle: "Filtered production reports", reports: visibleRecords });
+                } catch (error) {
+                  showSnackbar(mapErrorMessage(error), "error");
+                }
+              }}
+            >
+              Export PDF
+            </Button>
+          </>
         }
-        ListEmptyComponent={loading ? null : <EmptyState text="No logs yet" />}
+        ListEmptyComponent={loading ? null : <EmptyState text="No reports yet" />}
         contentContainerStyle={[styles.list, { paddingBottom: listBottomPadding }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
         renderItem={({ item }) => (
@@ -193,7 +219,7 @@ const AdminReportsScreen = () => {
               </View>
             </View>
             <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>
-              Hours: {item.workingHours} | Output: {item.outputProduced}
+              Job: {formatTimeOnly(item.jobStartTime)} - {formatTimeOnly(item.jobEndTime)} | Output: {item.outputProduced}
             </Text>
             <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>
               Downtime: {item.downtime} | Expected: {item.expectedOutput}
@@ -210,7 +236,7 @@ const AdminReportsScreen = () => {
                 style={styles.editBtn}
                 onPress={async () => {
                   await logService.remove(item.id);
-                  showSnackbar("Log deleted", "success");
+                  showSnackbar("Report deleted", "success");
                   await refresh();
                 }}
               >
@@ -237,7 +263,7 @@ const AdminReportsScreen = () => {
           <Dialog.Content>
             <ScrollView contentContainerStyle={styles.formScroll} keyboardShouldPersistTaps="handled">
               <AnimatedInput
-              label="Working Hours"
+              label="Runtime Hours"
               keyboardType="numeric"
               value={editForm.workingHours}
               onChangeText={(value) => setEditForm((prev) => ({ ...prev, workingHours: value }))}
@@ -269,7 +295,7 @@ const AdminReportsScreen = () => {
               style={styles.field}
             />
             <AnimatedInput
-              label="Cycle Time"
+              label="Cycle Time (Minutes)"
               keyboardType="numeric"
               value={editForm.cycleTime}
               onChangeText={(value) => setEditForm((prev) => ({ ...prev, cycleTime: value }))}
@@ -353,6 +379,10 @@ const styles = StyleSheet.create({
   },
   loadBtn: {
     borderRadius: 10
+  },
+  exportBtn: {
+    borderRadius: 10,
+    marginBottom: 10
   },
   footerSpace: {
     height: 12

@@ -42,11 +42,11 @@ export const machineSchema = yup.object({
       if (!value) return true;
       return /^https?:\/\/.+/i.test(value);
     }),
-  expectedOutputPerHour: yup
+  cycleTimeMinutes: yup
     .number()
     .typeError("Must be a number")
     .positive("Must be positive")
-    .required("Expected output/hour is required")
+    .required("Cycle time in minutes is required")
 });
 
 export const workerSchema = yup.object({
@@ -67,11 +67,14 @@ export const logSchema = yup.object({
   machineId: yup.string().required("Please select machine"),
   partId: yup.string().required("Please select part"),
   jobId: yup.string().nullable().default(""),
+  jobStartTime: yup.string().matches(/^([01]?\d|2[0-3]):[0-5]\d$/, "Use HH:mm time").required("Job start time required"),
+  jobEndTime: yup.string().matches(/^([01]?\d|2[0-3]):[0-5]\d$/, "Use HH:mm time").required("Job end time required"),
   workingHours: yup
     .number()
+    .transform((value, originalValue) => (originalValue === "" || originalValue == null ? 0 : value))
     .typeError("Must be a number")
-    .positive("Must be positive")
-    .required("Working hours required"),
+    .min(0, "Cannot be negative")
+    .default(0),
   outputProduced: yup
     .number()
     .typeError("Must be a number")

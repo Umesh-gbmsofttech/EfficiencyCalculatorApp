@@ -4,6 +4,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getCountFromServer,
   getDocs,
   limit,
   orderBy,
@@ -16,17 +17,20 @@ import {
   Timestamp,
   setDoc
 } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
 import { db } from "./config";
 import { COLLECTIONS } from "../../constants/collections";
-import { calculateEfficiency, calculateExpectedOutput } from "../../utils/calculations";
+import {
+  calculateReportMetrics,
+  getMachineCycleTimeMinutes
+} from "../../utils/calculations";
 import { toDateRange } from "../../utils/formatters";
 import { getShiftDate } from "../../utils/shift";
 import { getAttendanceForUserShift } from "./attendance";
 import { getShiftType } from "../../utils/shift";
 import { hasAccess } from "../../utils/access";
-import { logInfo } from "../../utils/logger";
+import { logInfo, logWarn } from "../../utils/logger";
 import { createAuditLog } from "./auditService";
+import { refreshStatsForReports } from "../analyticsAggregationService";
 
 export const normalizeImageUrl = (url = "") => {
   const trimmed = String(url).trim();
@@ -138,7 +142,7 @@ export const removePartMaster = async (id, { force = false, actorUid = "" } = {}
 };
 
 export const getWorkers = async ({ role, uid } = {}) => {
-  const normalizedRole = role === "worker" ? "operator" : role;
+  const normalizedRole = role;
   const safeRole = normalizedRole || "admin";
   logInfo("Workers", "role", safeRole);
   if (hasAccess(safeRole, ["admin"])) {
@@ -193,26 +197,15 @@ export const deleteWorker = async (id, { actorUid, actorRole } = {}) => {
     throw error;
   }
 
-  try {
-    const functions = getFunctions();
-    const callable = httpsCallable(functions, "deleteWorkerCompletely");
-    await callable({ uid: id });
-  } catch (error) {
-    const code = String(error?.code || "");
-    const shouldFallback = code.includes("not-found") || code.includes("unavailable") || code.includes("internal");
-    if (!shouldFallback) throw error;
-    const batch = writeBatch(db);
-    batch.delete(doc(db, COLLECTIONS.USERS, id));
-    batch.delete(doc(db, COLLECTIONS.ROLES, id));
-    await batch.commit();
-  }
+  const batch = writeBatch(db);
+  batch.delete(doc(db, COLLECTIONS.USERS, id));
+  batch.delete(doc(db, COLLECTIONS.ROLES, id));
+  batch.delete(doc(db, COLLECTIONS.SALARY_CONFIGS, id));
+  await batch.commit();
 };
 
 export const repairMissingUsers = async () => {
-  const functions = getFunctions();
-  const callable = httpsCallable(functions, "repairMissingUsers");
-  const response = await callable({});
-  return response?.data || { repaired: [] };
+  return { repaired: [], clientOnly: true };
 };
 
 export const getMachines = async () => {
@@ -235,6 +228,7 @@ export const getMachines = async () => {
       machineCode: data.machineCode || data.code || "",
       active: data.active !== false,
       schemaVersion: Number(data.schemaVersion || 1),
+      cycleTimeMinutes: getMachineCycleTimeMinutes(data),
       partIds,
       jobIds
     };
@@ -255,9 +249,10 @@ export const createMachine = async (data) => {
     partId: partIds[0] || "",
     jobIds: Array.isArray(data.jobIds) ? data.jobIds.filter(Boolean) : [],
     active: data.active !== false,
-    schemaVersion: 3,
+    schemaVersion: 4,
     imageUrl: normalizeImageUrl(data.imageUrl),
-    expectedOutputPerHour: Number(data.expectedOutputPerHour),
+    cycleTimeMinutes: Number(data.cycleTimeMinutes || data.cycleTime),
+    expectedOutputPerHour: Number(data.cycleTimeMinutes || data.cycleTime) > 0 ? Number((60 / Number(data.cycleTimeMinutes || data.cycleTime)).toFixed(4)) : 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   };
@@ -288,9 +283,10 @@ export const editMachine = async (id, data) => {
     partId: partIds[0] || "",
     jobIds,
     active: data.active !== false,
-    schemaVersion: 3,
+    schemaVersion: 4,
     imageUrl: normalizeImageUrl(data.imageUrl),
-    expectedOutputPerHour: Number(data.expectedOutputPerHour),
+    cycleTimeMinutes: Number(data.cycleTimeMinutes || data.cycleTime),
+    expectedOutputPerHour: Number(data.cycleTimeMinutes || data.cycleTime) > 0 ? Number((60 / Number(data.cycleTimeMinutes || data.cycleTime)).toFixed(4)) : 0,
     updatedAt: serverTimestamp()
   };
   await updateDoc(ref, payload);
@@ -329,6 +325,8 @@ export const createEfficiencyLog = async ({
   workingHours,
   outputProduced,
   downtime,
+  jobStartTime = null,
+  jobEndTime = null,
   partName = "",
   operationCode = "",
   cycleTime = 0,
@@ -337,7 +335,7 @@ export const createEfficiencyLog = async ({
   rejectedQty = 0,
   breakdownReason = ""
 }) => {
-  const normalizedRole = actorRole === "worker" ? "operator" : actorRole;
+  const normalizedRole = actorRole;
   if (normalizedRole !== "operator" && normalizedRole !== "admin") {
     const roleErr = new Error("Only operators can create production logs.");
     roleErr.code = "permission-denied";
@@ -348,12 +346,28 @@ export const createEfficiencyLog = async ({
     err.code = "invalid-argument";
     throw err;
   }
-  const expectedOutput = calculateExpectedOutput(machine.expectedOutputPerHour, workingHours, downtime);
-  const efficiency = calculateEfficiency(outputProduced, expectedOutput);
+  const metrics = calculateReportMetrics({
+    machine,
+    workingHours,
+    downtime,
+    outputProduced,
+    actualQty,
+    cycleTimeMinutes: machine.cycleTimeMinutes || cycleTime,
+    jobStartTime,
+    jobEndTime
+  });
+  if (!metrics.cycleTimeMinutes || metrics.cycleTimeMinutes <= 0) {
+    const err = new Error("Machine cycle time is required before submitting reports.");
+    err.code = "failed-precondition";
+    throw err;
+  }
 
   const timestamp = Timestamp.now();
   const shiftDate = getShiftDate(timestamp);
   const shiftType = getShiftType(timestamp);
+  const reportDate = timestamp.toDate();
+  const month = `${reportDate.getFullYear()}_${String(reportDate.getMonth() + 1).padStart(2, "0")}`;
+  const year = reportDate.getFullYear();
   const attendance = await getAttendanceForUserShift({ userId: worker.uid, shiftDate });
   if (!attendance) {
     const err = new Error("Attendance required before submitting production logs.");
@@ -361,7 +375,9 @@ export const createEfficiencyLog = async ({
     throw err;
   }
   const actual = actualQty === null ? Number(outputProduced) : Number(actualQty);
-  await addDoc(collection(db, COLLECTIONS.LOGS), {
+  const reportPayload = {
+    schemaVersion: 2,
+    recordType: "productionReport",
     machineId: machine.id,
     machineName: machine.name,
     machineCode: machine.code || "",
@@ -369,9 +385,13 @@ export const createEfficiencyLog = async ({
     workerId: worker.uid,
     userId: worker.uid,
     workerName: worker.fullName,
-    workingHours: Number(workingHours),
+    workingHours: Number(workingHours || metrics.runtimeMinutes / 60),
+    runtimeMinutes: metrics.runtimeMinutes,
+    jobStartTime: jobStartTime ? Timestamp.fromDate(new Date(jobStartTime)) : null,
+    jobEndTime: jobEndTime ? Timestamp.fromDate(new Date(jobEndTime)) : null,
     outputProduced: Number(outputProduced),
     actualQty: actual,
+    actualProduction: metrics.actualProduction,
     plannedQty: Number(plannedQty || 0),
     rejectedQty: Number(rejectedQty || 0),
     partId: part?.id || "",
@@ -380,20 +400,31 @@ export const createEfficiencyLog = async ({
     jobCode: String(job?.jobCode || "").trim(),
     partName: String(partName || "").trim(),
     operationCode: String(operationCode || "").trim(),
-    cycleTime: Number(cycleTime || 0),
+    cycleTime: metrics.cycleTimeMinutes,
+    cycleTimeMinutes: metrics.cycleTimeMinutes,
     breakdownReason: String(breakdownReason || "").trim(),
     operatorName: worker.fullName,
     shiftType,
+    month,
+    year,
     downtime: Number(downtime),
     machineDowntime: Number(downtime),
-    expectedOutput,
-    efficiency,
+    downtimeMinutes: metrics.downtimeMinutes,
+    expectedOutput: metrics.expectedOutput,
+    expectedProduction: metrics.expectedProduction,
+    efficiency: metrics.efficiency,
     timestamp,
     shiftDate,
     createdAt: serverTimestamp()
-  });
+  };
+  const ref = await addDoc(collection(db, COLLECTIONS.REPORTS), reportPayload);
+  try {
+    await refreshStatsForReports([{ id: ref.id, ...reportPayload, timestamp }], { includeMachine: normalizedRole === "admin" });
+  } catch (error) {
+    logWarn("Analytics", "failed to refresh stats after report create", { code: error?.code || "unknown" });
+  }
 
-  return { expectedOutput, efficiency };
+  return { expectedOutput: metrics.expectedOutput, efficiency: metrics.efficiency };
 };
 
 export const logEfficiency = async (payload) => createEfficiencyLog(payload);
@@ -415,31 +446,40 @@ export const getDashboardStats = async (params) => {
   const uid = typeof params === "string" ? params : params?.uid;
   const isWorkerScope = Boolean(uid);
 
-  const safeSize = (result) => (result.status === "fulfilled" ? result.value.size : 0);
+  const safeValue = (result) => (result.status === "fulfilled" ? result.value : 0);
 
   if (isWorkerScope) {
-    const [machinesSnap, logsSnap] = await Promise.allSettled([
-      getDocs(query(collection(db, COLLECTIONS.MACHINES))),
-      getDocs(query(collection(db, COLLECTIONS.LOGS), where("userId", "==", uid)))
+    const [machinesCount, reportsCount] = await Promise.allSettled([
+      getCollectionCount(query(collection(db, COLLECTIONS.MACHINES))),
+      getCollectionCount(query(collection(db, COLLECTIONS.REPORTS), where("userId", "==", uid)))
     ]);
 
     return {
       workers: 0,
-      machines: safeSize(machinesSnap),
-      logs: safeSize(logsSnap)
+      machines: safeValue(machinesCount),
+      logs: safeValue(reportsCount),
+      reports: safeValue(reportsCount)
     };
   }
 
-  const [workersSnap, machinesSnap, logsSnap] = await Promise.allSettled([
-    getDocs(query(collection(db, COLLECTIONS.USERS))),
-    getDocs(query(collection(db, COLLECTIONS.MACHINES))),
-    getDocs(query(collection(db, COLLECTIONS.LOGS)))
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+  const [workersCount, machinesCount, reportsCount, todayReportsCount, monthReportsCount] = await Promise.allSettled([
+    getCollectionCount(query(collection(db, COLLECTIONS.USERS), where("isActive", "==", true))),
+    getCollectionCount(query(collection(db, COLLECTIONS.MACHINES), where("active", "==", true))),
+    getCollectionCount(query(collection(db, COLLECTIONS.REPORTS))),
+    getCollectionCount(query(collection(db, COLLECTIONS.REPORTS), where("timestamp", ">=", Timestamp.fromDate(todayStart)))),
+    getCollectionCount(query(collection(db, COLLECTIONS.REPORTS), where("timestamp", ">=", Timestamp.fromDate(monthStart))))
   ]);
 
   return {
-    workers: safeSize(workersSnap),
-    machines: safeSize(machinesSnap),
-    logs: safeSize(logsSnap)
+    workers: safeValue(workersCount),
+    machines: safeValue(machinesCount),
+    logs: safeValue(reportsCount),
+    reports: safeValue(reportsCount),
+    todayReports: safeValue(todayReportsCount),
+    monthlyReports: safeValue(monthReportsCount)
   };
 };
 
@@ -450,7 +490,7 @@ export const getEfficiencyTrend = async ({ uid, days = 7 }) => {
   if (uid) constraints.unshift(where("userId", "==", uid));
   const role = uid ? "operator" : "admin";
   try {
-    const q = query(collection(db, COLLECTIONS.LOGS), ...constraints);
+    const q = query(collection(db, COLLECTIONS.REPORTS), ...constraints);
     const snap = await getDocs(q);
     let records = snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
@@ -471,7 +511,7 @@ export const getEfficiencyTrend = async ({ uid, days = 7 }) => {
     if (!isIndexOrRetryableError(error)) throw error;
     const fallbackConstraints = [limit(Math.max(days * 40, 100))];
     if (uid) fallbackConstraints.unshift(where("userId", "==", uid));
-    const fallbackQuery = query(collection(db, COLLECTIONS.LOGS), ...fallbackConstraints);
+    const fallbackQuery = query(collection(db, COLLECTIONS.REPORTS), ...fallbackConstraints);
     const fallbackSnap = await getDocs(fallbackQuery);
     let records = fallbackSnap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
@@ -493,6 +533,11 @@ export const getEfficiencyTrend = async ({ uid, days = 7 }) => {
     logInfo("Firestore", "getEfficiencyTrend fallback", { uid: uid || "all", role, resultCount: records.length });
     return records;
   }
+};
+
+const getCollectionCount = async (q) => {
+  const snap = await getCountFromServer(q);
+  return snap.data().count || 0;
 };
 
 const isSameOrAfter = (date, start) => (!start ? true : date >= start);
@@ -528,7 +573,7 @@ const buildPrimaryLogsQuery = ({ role, uid, filters = {}, cursor = null, pageSiz
   if (end) constraints.push(where("timestamp", "<=", Timestamp.fromDate(end)));
   constraints.push(orderBy("timestamp", "desc"), limit(pageSize));
   if (cursor) constraints.push(startAfter(cursor));
-  return query(collection(db, COLLECTIONS.LOGS), ...constraints);
+  return query(collection(db, COLLECTIONS.REPORTS), ...constraints);
 };
 
 const getFallbackLogsPage = async ({ role, uid, filters, cursor = null, pageSize = 12 }) => {
@@ -538,13 +583,13 @@ const getFallbackLogsPage = async ({ role, uid, filters, cursor = null, pageSize
   let raw = [];
   let snapDocs = [];
   if (hasAccess(role, ["admin"])) {
-    const q = query(collection(db, COLLECTIONS.LOGS), ...baseConstraints);
+    const q = query(collection(db, COLLECTIONS.REPORTS), ...baseConstraints);
     const snap = await getDocs(q);
     raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     snapDocs = snap.docs;
   } else {
-    const userIdSnap = await getDocs(query(collection(db, COLLECTIONS.LOGS), where("userId", "==", uid), ...baseConstraints));
-    const workerIdSnap = await getDocs(query(collection(db, COLLECTIONS.LOGS), where("workerId", "==", uid), ...baseConstraints));
+    const userIdSnap = await getDocs(query(collection(db, COLLECTIONS.REPORTS), where("userId", "==", uid), ...baseConstraints));
+    const workerIdSnap = await getDocs(query(collection(db, COLLECTIONS.REPORTS), where("workerId", "==", uid), ...baseConstraints));
     const dedup = new Map();
     [...userIdSnap.docs, ...workerIdSnap.docs].forEach((d) => dedup.set(d.id, { id: d.id, ...d.data() }));
     raw = Array.from(dedup.values());
@@ -570,7 +615,7 @@ const getFallbackLogsPage = async ({ role, uid, filters, cursor = null, pageSize
 };
 
 export const getLogsPage = async ({ role, uid, filters = {}, cursor = null, pageSize = 12 }) => {
-  const normalizedRole = role === "worker" ? "operator" : role;
+  const normalizedRole = role;
   try {
     const q = buildPrimaryLogsQuery({ role: normalizedRole, uid, filters, cursor, pageSize });
     const snap = await getDocs(q);
@@ -590,24 +635,49 @@ export const getLogsPage = async ({ role, uid, filters = {}, cursor = null, page
 };
 
 export const updateEfficiencyLog = async (id, data) => {
-  await updateDoc(doc(db, COLLECTIONS.LOGS, id), {
-    workingHours: Number(data.workingHours),
+  const beforeSnap = await getDoc(doc(db, COLLECTIONS.REPORTS, id));
+  const beforeReport = beforeSnap.exists() ? { id: beforeSnap.id, ...beforeSnap.data() } : null;
+  const metrics = calculateReportMetrics(data);
+  const updatePayload = {
+    workingHours: Number(data.workingHours || metrics.runtimeMinutes / 60),
+    runtimeMinutes: metrics.runtimeMinutes,
+    jobStartTime: data.jobStartTime ? Timestamp.fromDate(new Date(data.jobStartTime)) : data.jobStartTime ?? null,
+    jobEndTime: data.jobEndTime ? Timestamp.fromDate(new Date(data.jobEndTime)) : data.jobEndTime ?? null,
     outputProduced: Number(data.outputProduced),
     downtime: Number(data.downtime),
+    downtimeMinutes: metrics.downtimeMinutes,
     machineDowntime: Number(data.machineDowntime ?? data.downtime),
-    expectedOutput: Number(data.expectedOutput),
-    efficiency: Number(data.efficiency),
+    expectedOutput: metrics.expectedOutput,
+    expectedProduction: metrics.expectedProduction,
+    actualProduction: metrics.actualProduction,
+    efficiency: metrics.efficiency,
     partName: String(data.partName ?? ""),
     operationCode: String(data.operationCode ?? ""),
-    cycleTime: Number(data.cycleTime ?? 0),
+    cycleTime: metrics.cycleTimeMinutes,
+    cycleTimeMinutes: metrics.cycleTimeMinutes,
     plannedQty: Number(data.plannedQty ?? 0),
     actualQty: Number(data.actualQty ?? data.outputProduced),
     rejectedQty: Number(data.rejectedQty ?? 0),
     breakdownReason: String(data.breakdownReason ?? ""),
     updatedAt: serverTimestamp()
-  });
+  };
+  await updateDoc(doc(db, COLLECTIONS.REPORTS, id), updatePayload);
+  const afterSnap = await getDoc(doc(db, COLLECTIONS.REPORTS, id));
+  const afterReport = afterSnap.exists() ? { id: afterSnap.id, ...afterSnap.data() } : { ...beforeReport, ...updatePayload };
+  try {
+    await refreshStatsForReports([beforeReport, afterReport], { includeMachine: true });
+  } catch (error) {
+    logWarn("Analytics", "failed to refresh stats after report update", { code: error?.code || "unknown" });
+  }
 };
 
 export const deleteEfficiencyLog = async (id) => {
-  await deleteDoc(doc(db, COLLECTIONS.LOGS, id));
+  const beforeSnap = await getDoc(doc(db, COLLECTIONS.REPORTS, id));
+  const beforeReport = beforeSnap.exists() ? { id: beforeSnap.id, ...beforeSnap.data() } : null;
+  await deleteDoc(doc(db, COLLECTIONS.REPORTS, id));
+  try {
+    await refreshStatsForReports([beforeReport], { includeMachine: true });
+  } catch (error) {
+    logWarn("Analytics", "failed to refresh stats after report delete", { code: error?.code || "unknown" });
+  }
 };

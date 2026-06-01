@@ -14,6 +14,7 @@ export default ({ config }) => ({
   },
   plugins: [
     "expo-asset",
+    "@react-native-community/datetimepicker",
     [
       "expo-splash-screen",
       {

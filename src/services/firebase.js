@@ -114,7 +114,7 @@ export const addMachine = async (machineData = {}) => {
 };
 
 export const logEfficiency = async (logData = {}) => {
-  const ref = await addDoc(collection(db, COLLECTIONS.LOGS), {
+  const ref = await addDoc(collection(db, COLLECTIONS.REPORTS), {
     ...logData,
     timestamp: Timestamp.now()
   });

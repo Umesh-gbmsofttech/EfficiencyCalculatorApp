@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { Button, Dialog, Portal, useTheme } from "react-native-paper";
 import { useForm } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
@@ -9,8 +10,8 @@ import useAuthStore from "../../store/authStore";
 import useUIStore from "../../store/uiStore";
 import { logSchema } from "../../utils/validationSchemas";
 import { mapErrorMessage } from "../../utils/errorMapper";
-import { calculateEfficiency, calculateExpectedOutput } from "../../utils/calculations";
-import { formatPercent } from "../../utils/formatters";
+import { calculateReportMetrics } from "../../utils/calculations";
+import { formatDateTime, formatPercent, formatTimeOnly } from "../../utils/formatters";
 import GlassCard from "../../components/GlassCard";
 import ScreenContainer from "../../components/ScreenContainer";
 import PrimaryButton from "../../components/PrimaryButton";
@@ -48,8 +49,12 @@ const LogEfficiencyScreen = () => {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [partPickerVisible, setPartPickerVisible] = useState(false);
   const [jobPickerVisible, setJobPickerVisible] = useState(false);
+  const [iosTimePickerField, setIosTimePickerField] = useState(null);
+  const [iosTimePickerValue, setIosTimePickerValue] = useState(new Date());
   const [loadingMaster, setLoadingMaster] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [recentReports, setRecentReports] = useState([]);
+  const [selectedReport, setSelectedReport] = useState(null);
 
   const { control, handleSubmit, setValue, watch, reset } = useForm({
     resolver: yupResolver(logSchema),
@@ -57,6 +62,8 @@ const LogEfficiencyScreen = () => {
       machineId: "",
       partId: "",
       jobId: "",
+      jobStartTime: "",
+      jobEndTime: "",
       workingHours: "",
       outputProduced: "",
       downtime: "0",
@@ -68,11 +75,17 @@ const LogEfficiencyScreen = () => {
   const selectedMachineId = watch("machineId");
   const selectedPartId = watch("partId");
   const selectedJobId = watch("jobId");
-  const workingHours = Number(watch("workingHours") || 0);
+  const jobStartTime = watch("jobStartTime");
+  const jobEndTime = watch("jobEndTime");
   const outputProduced = Number(watch("outputProduced") || 0);
   const downtime = Number(watch("downtime") || 0);
   const role = profile?.role === "worker" ? "operator" : profile?.role;
   const canSubmitLogs = hasAccess(role, ["operator"]);
+  const formatTime = React.useCallback((date) => {
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  }, []);
 
   const loadMachines = React.useCallback(async () => {
     try {
@@ -94,6 +107,24 @@ const LogEfficiencyScreen = () => {
     React.useCallback(() => {
       loadMachines();
     }, [loadMachines])
+  );
+
+  const loadRecentReports = React.useCallback(async () => {
+    if (!user?.uid) return;
+    try {
+      const response = await logService.listPage({ role: "operator", uid: user.uid, filters: {}, cursor: null, pageSize: 5 });
+      setRecentReports(response.records || []);
+    } catch (error) {
+      if (!["failed-precondition", "permission-denied"].includes(String(error?.code || ""))) {
+        showSnackbar(mapErrorMessage(error), "error");
+      }
+    }
+  }, [showSnackbar, user?.uid]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadRecentReports();
+    }, [loadRecentReports])
   );
 
   const selectedMachine = useMemo(
@@ -166,15 +197,48 @@ const LogEfficiencyScreen = () => {
     }
   }, [compatibleJobs, machineParts, selectedMachineId, selectedPartId, selectedJobId, setValue]);
 
-  const expectedOutput = useMemo(() => {
-    if (!selectedMachine) return 0;
-    return calculateExpectedOutput(selectedMachine.expectedOutputPerHour, workingHours, downtime);
-  }, [selectedMachine, workingHours, downtime]);
+  const buildJobDate = React.useCallback((timeText) => {
+    const match = String(timeText || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    const date = new Date();
+    date.setHours(Number(match[1]), Number(match[2]), 0, 0);
+    return date;
+  }, []);
+  const getPickerDate = React.useCallback((timeText) => buildJobDate(timeText) || new Date(), [buildJobDate]);
+  const openTimePicker = React.useCallback((fieldName) => {
+    const current = getPickerDate(fieldName === "jobStartTime" ? jobStartTime : jobEndTime);
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: current,
+        mode: "time",
+        display: "clock",
+        is24Hour: true,
+        onChange: (event, selectedDate) => {
+          if (event.type !== "set" || !selectedDate) return;
+          setValue(fieldName, formatTime(selectedDate), { shouldValidate: true, shouldDirty: true });
+        }
+      });
+      return;
+    }
+    setIosTimePickerField(fieldName);
+    setIosTimePickerValue(current);
+  }, [formatTime, getPickerDate, jobEndTime, jobStartTime, setValue]);
 
-  const efficiency = useMemo(
-    () => calculateEfficiency(outputProduced, expectedOutput),
-    [outputProduced, expectedOutput]
-  );
+  const reportMetrics = useMemo(() => {
+    if (!selectedMachine) return 0;
+    const start = buildJobDate(jobStartTime);
+    const end = buildJobDate(jobEndTime);
+    const normalizedEnd = start && end && end < start ? new Date(end.getTime() + 24 * 60 * 60000) : end;
+    return calculateReportMetrics({
+      machine: selectedMachine,
+      jobStartTime: start,
+      jobEndTime: normalizedEnd,
+      downtime,
+      outputProduced
+    });
+  }, [buildJobDate, downtime, jobEndTime, jobStartTime, outputProduced, selectedMachine]);
+  const expectedOutput = reportMetrics?.expectedOutput || 0;
+  const efficiency = reportMetrics?.efficiency || 0;
 
   const onSubmit = async (values) => {
     try {
@@ -187,11 +251,11 @@ const LogEfficiencyScreen = () => {
         return;
       }
       if (locationRestrictionEnabled && permissionStatus !== "granted") {
-        showSnackbar("Grant location permission to submit logs.", "warning");
+        showSnackbar("Grant location permission to submit reports.", "warning");
         return;
       }
       if (locationRestrictionEnabled && !servicesEnabled) {
-        showSnackbar("Turn on device location to submit logs.", "warning");
+        showSnackbar("Turn on device location to submit reports.", "warning");
         return;
       }
       if (locationRestrictionEnabled && !isInsideRadius) {
@@ -199,7 +263,7 @@ const LogEfficiencyScreen = () => {
         return;
       }
       if (!selectedPart) {
-        showSnackbar("Select part before submitting log.", "warning");
+        showSnackbar("Select part before submitting report.", "warning");
         return;
       }
       setSaving(true);
@@ -209,22 +273,31 @@ const LogEfficiencyScreen = () => {
         job: selectedJob || null,
         actorRole: role,
         worker: { uid: user.uid, fullName: profile?.fullName || user?.displayName || "Worker" },
-        workingHours: values.workingHours,
+        workingHours: reportMetrics.runtimeMinutes / 60,
+        jobStartTime: buildJobDate(values.jobStartTime),
+        jobEndTime: (() => {
+          const start = buildJobDate(values.jobStartTime);
+          const end = buildJobDate(values.jobEndTime);
+          return start && end && end < start ? new Date(end.getTime() + 24 * 60 * 60000) : end;
+        })(),
         outputProduced: values.outputProduced,
         downtime: values.downtime,
         partName: selectedPart.partName,
         operationCode: selectedPart.operationCode,
-        cycleTime: selectedPart.cycleTime,
+        cycleTime: selectedMachine.cycleTimeMinutes || selectedPart.cycleTime,
         plannedQty: expectedOutput,
         actualQty: values.outputProduced,
         rejectedQty: values.rejectedQty,
         breakdownReason: values.breakdownReason
       });
-      showSnackbar("Efficiency log added", "success");
+      showSnackbar("Efficiency report added", "success");
+      await loadRecentReports();
       reset({
         machineId: "",
         partId: "",
         jobId: "",
+        jobStartTime: "",
+        jobEndTime: "",
         workingHours: "",
         outputProduced: "",
         downtime: "0",
@@ -264,9 +337,9 @@ const LogEfficiencyScreen = () => {
       </Button>
       <Button
         mode="outlined"
-        onPress={() => {}}
+        onPress={() => setJobPickerVisible(true)}
         style={styles.machineBtn}
-        disabled
+        disabled={!selectedPartId || loadingMaster}
       >
         {selectedJob ? `Job: ${selectedJob.jobName}` : "Job (Optional)"}
       </Button>
@@ -281,13 +354,27 @@ const LogEfficiencyScreen = () => {
             <View style={styles.machineMeta}>
               <Text style={[styles.machineName, { color: theme.colors.onSurface }]}>{selectedMachine.name}</Text>
               <Text style={[styles.machineText, { color: theme.custom.colors.textMuted }]}>Code: {selectedMachine.code}</Text>
-              <Text style={[styles.machineText, { color: theme.custom.colors.textMuted }]}>Expected/hour: {selectedMachine.expectedOutputPerHour}</Text>
+              <Text style={[styles.machineText, { color: theme.custom.colors.textMuted }]}>Cycle time: {selectedMachine.cycleTimeMinutes} min</Text>
             </View>
           </View>
         </GlassCard>
       ) : null}
 
-      <FormTextField control={control} name="workingHours" label="Working Hours" keyboardType="numeric" />
+      <View style={styles.timeRow}>
+        <View style={styles.timeCol}>
+          <Button mode="outlined" icon="clock-start" style={styles.timeBtn} onPress={() => openTimePicker("jobStartTime")}>
+            {jobStartTime ? `Start ${jobStartTime}` : "Job Start"}
+          </Button>
+        </View>
+        <View style={styles.timeCol}>
+          <Button mode="outlined" icon="clock-end" style={styles.timeBtn} onPress={() => openTimePicker("jobEndTime")}>
+            {jobEndTime ? `End ${jobEndTime}` : "Job End"}
+          </Button>
+        </View>
+      </View>
+      <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
+        Runtime: {Number(reportMetrics?.runtimeMinutes || 0).toFixed(0)} minutes
+      </Text>
       <FormTextField control={control} name="outputProduced" label="Output Produced" keyboardType="numeric" />
       <FormTextField control={control} name="downtime" label="Downtime (Hours)" keyboardType="numeric" />
       <FormTextField control={control} name="rejectedQty" label="Rejected Qty" keyboardType="numeric" />
@@ -304,7 +391,7 @@ const LogEfficiencyScreen = () => {
         <GlassCard>
           <Text style={[styles.locationTitle, { color: theme.colors.onSurface }]}>Location Required</Text>
           <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
-            Turn on device location and allow permission to submit production logs.
+            Turn on device location and allow permission to submit production reports.
           </Text>
           <View style={styles.locationActions}>
             <Button mode="contained-tonal" onPress={requestLocationAccess}>
@@ -318,11 +405,32 @@ const LogEfficiencyScreen = () => {
       ) : null}
 
       <PrimaryButton
-        title="Save Log"
+        title="Save Report"
         onPress={handleSubmit(onSubmit)}
         loading={saving}
         disabled={(locationRestrictionEnabled && (!isInsideRadius || permissionStatus !== "granted" || !servicesEnabled)) || !canSubmitLogs}
       />
+      <GlassCard style={styles.recentCard}>
+        <View style={styles.recentHeader}>
+          <Text style={[styles.locationTitle, { color: theme.colors.onSurface }]}>Recent Reports</Text>
+          <Button compact mode="text" onPress={loadRecentReports}>Refresh</Button>
+        </View>
+        {recentReports.length ? (
+          recentReports.map((item) => (
+            <Pressable key={item.id} style={styles.recentRow} onPress={() => setSelectedReport(item)}>
+              <RemoteImage uri={item.machineImageUrl} fallbackSource={MACHINE_PLACEHOLDER} style={styles.recentThumb} />
+              <View style={styles.optionMeta}>
+                <Text style={[styles.optionTitle, { color: theme.colors.onSurface }]}>{item.machineName || "Machine"}</Text>
+                <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>
+                  {formatTimeOnly(item.jobStartTime)} - {formatTimeOnly(item.jobEndTime)} | {formatPercent(item.efficiency)}
+                </Text>
+              </View>
+            </Pressable>
+          ))
+        ) : (
+          <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>No reports yet.</Text>
+        )}
+      </GlassCard>
       {locationRestrictionEnabled ? (
         <>
           <Text style={[styles.locationHint, { color: theme.custom.colors.textMuted }]}>
@@ -374,7 +482,7 @@ const LogEfficiencyScreen = () => {
                   <RemoteImage uri={item.imageUrl} fallbackSource={MACHINE_PLACEHOLDER} style={styles.optionImage} />
                   <View style={styles.optionMeta}>
                     <Text style={[styles.optionTitle, { color: theme.colors.onSurface }]}>{item.name}</Text>
-                    <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>{item.code} | {item.expectedOutputPerHour}/hr</Text>
+                    <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>{item.code} | CT {item.cycleTimeMinutes} min</Text>
                   </View>
                 </Pressable>
               )}
@@ -442,6 +550,55 @@ const LogEfficiencyScreen = () => {
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setJobPickerVisible(false)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+        <Dialog visible={Boolean(iosTimePickerField)} onDismiss={() => setIosTimePickerField(null)} style={styles.pickerDialog}>
+          <Dialog.Title>{iosTimePickerField === "jobStartTime" ? "Job Start" : "Job End"}</Dialog.Title>
+          <Dialog.Content>
+            {iosTimePickerField ? (
+              <DateTimePicker
+                value={iosTimePickerValue}
+                mode="time"
+                display="spinner"
+                is24Hour
+                onChange={(_, selectedDate) => {
+                  if (selectedDate) setIosTimePickerValue(selectedDate);
+                }}
+              />
+            ) : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setIosTimePickerField(null)}>Cancel</Button>
+            <Button
+              onPress={() => {
+                if (iosTimePickerField) {
+                  setValue(iosTimePickerField, formatTime(iosTimePickerValue), { shouldValidate: true, shouldDirty: true });
+                }
+                setIosTimePickerField(null);
+              }}
+            >
+              Done
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+        <Dialog visible={Boolean(selectedReport)} onDismiss={() => setSelectedReport(null)} style={styles.pickerDialog}>
+          <Dialog.Title>Report Details</Dialog.Title>
+          <Dialog.Content>
+            {selectedReport ? (
+              <View>
+                <Text style={[styles.optionTitle, { color: theme.colors.onSurface }]}>{selectedReport.machineName || "Machine"}</Text>
+                <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>Date: {formatDateTime(selectedReport.timestamp)}</Text>
+                <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>Job: {selectedReport.jobName || "-"}</Text>
+                <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>Start: {formatTimeOnly(selectedReport.jobStartTime)} | End: {formatTimeOnly(selectedReport.jobEndTime)}</Text>
+                <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>Runtime: {selectedReport.runtimeMinutes || 0} min</Text>
+                <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>Output: {selectedReport.outputProduced || selectedReport.actualProduction || 0}</Text>
+                <Text style={[styles.optionText, { color: theme.custom.colors.textMuted }]}>Expected: {selectedReport.expectedProduction || selectedReport.expectedOutput || 0}</Text>
+                <Text style={[styles.optionText, { color: theme.colors.primary }]}>Efficiency: {formatPercent(selectedReport.efficiency)}</Text>
+              </View>
+            ) : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setSelectedReport(null)}>Close</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
@@ -539,6 +696,37 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     marginTop: 8
+  },
+  timeRow: {
+    flexDirection: "row",
+    gap: 10
+  },
+  timeCol: {
+    flex: 1
+  },
+  timeBtn: {
+    borderRadius: 10,
+    marginBottom: 4
+  },
+  recentCard: {
+    marginTop: 10
+  },
+  recentHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center"
+  },
+  recentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8
+  },
+  recentThumb: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor: "#E2E8F0"
   }
 });
 

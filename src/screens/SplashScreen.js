@@ -7,7 +7,7 @@ import ScreenContainer from "../components/ScreenContainer";
 const SplashScreen = () => {
   const theme = useTheme();
   return (
-    <ScreenContainer contentContainerStyle={styles.container}>
+    <ScreenContainer contentContainerStyle={styles.container} showChrome={false}>
       <View style={styles.inner}>
         <AppLogo size={140} />
         <Text style={[styles.title, { color: theme.colors.onSurface }]}>Efficiency Calculator</Text>

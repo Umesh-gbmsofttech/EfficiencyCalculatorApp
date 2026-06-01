@@ -75,7 +75,15 @@ const AdminDashboardScreen = () => {
           <StatCard title="Machines" value={stats.machines} />
         </View>
       </View>
-      <StatCard title="Total Logs" value={stats.logs} caption="All submitted efficiency records" />
+      <View style={styles.row}>
+        <View style={styles.col}>
+          <StatCard title="Today's Reports" value={stats.todayReports || 0} />
+        </View>
+        <View style={styles.col}>
+          <StatCard title="Monthly Reports" value={stats.monthlyReports || 0} />
+        </View>
+      </View>
+      <StatCard title="Total Reports" value={stats.reports || stats.logs} caption="All submitted efficiency records" />
       <GlassCard>
         <Text style={[styles.heading, { color: theme.colors.onSurface }]}>Quick Actions</Text>
         <View style={styles.quickGrid}>
@@ -121,7 +129,7 @@ const AdminDashboardScreen = () => {
 
       {trend.length ? (
         <GlassCard>
-          <Text style={[styles.heading, { color: theme.colors.onSurface }]}>Recent Logs</Text>
+          <Text style={[styles.heading, { color: theme.colors.onSurface }]}>Recent Reports</Text>
           {trend
             .slice(-4)
             .reverse()

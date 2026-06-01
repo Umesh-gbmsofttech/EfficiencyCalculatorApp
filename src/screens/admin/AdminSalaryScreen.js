@@ -10,6 +10,7 @@ import useAuthStore from "../../store/authStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
 import salaryService from "../../services/firebase/salaryService";
 import userService from "../../services/firebase/userService";
+import { exportTablePdf } from "../../utils/pdfExport";
 
 const AdminSalaryScreen = () => {
   const theme = useTheme();
@@ -91,6 +92,45 @@ const AdminSalaryScreen = () => {
   return (
     <ScreenContainer>
       <AnimatedInput label="Settlement Month (YYYY-MM)" value={month} onChangeText={setMonth} style={styles.monthInput} />
+      <Button
+        mode="contained-tonal"
+        icon="file-pdf-box"
+        style={styles.exportBtn}
+        onPress={async () => {
+          try {
+            await exportTablePdf({
+              title: "Salary Export",
+              subtitle: `Salary records for ${month}`,
+              columns: [
+                { key: "userId", label: "User ID" },
+                { key: "month", label: "Month" },
+                { key: "attendanceDays", label: "Attendance Days" },
+                { key: "totalProduction", label: "Production" },
+                { key: "baseSalary", label: "Base Salary" },
+                { key: "bonus", label: "Bonus" },
+                { key: "deduction", label: "Deduction" },
+                { key: "finalSalary", label: "Final Salary" },
+                { key: "locked", label: "Locked" }
+              ],
+              rows: records.map((item) => ({
+                userId: item.userId || "",
+                month: item.month || "",
+                attendanceDays: item.attendanceDays || 0,
+                totalProduction: item.totalProduction || 0,
+                baseSalary: item.baseSalary || 0,
+                bonus: item.bonus || 0,
+                deduction: item.deduction || 0,
+                finalSalary: item.finalSalary || 0,
+                locked: item.locked ? "Yes" : "No"
+              }))
+            });
+          } catch (error) {
+            showSnackbar(mapErrorMessage(error), "error");
+          }
+        }}
+      >
+        Export PDF
+      </Button>
       <FlatList
         data={workers}
         keyExtractor={(item) => item.id}
@@ -158,6 +198,7 @@ const AdminSalaryScreen = () => {
 
 const styles = StyleSheet.create({
   monthInput: { marginBottom: 10 },
+  exportBtn: { borderRadius: 10, marginBottom: 10 },
   name: { fontSize: 16, fontWeight: "600", marginBottom: 2 },
   meta: { fontSize: 13, marginBottom: 6 },
   row: { flexDirection: "column", gap: 8 },

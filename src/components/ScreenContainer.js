@@ -1,9 +1,40 @@
 import React from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRoute } from "@react-navigation/native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useTheme } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Header from "./Header";
+import GlobalBottomNav from "./GlobalBottomNav";
+import useAuthStore from "../store/authStore";
+
+const TITLE_MAP = {
+  Dashboard: "Dashboard",
+  Reports: "Reports",
+  Attendance: "Attendance",
+  Profile: "Profile",
+  ManageWorkers: "Manage Workers",
+  ManageMachines: "Manage Machines",
+  ManageParts: "Manage Parts",
+  SalarySystem: "Salary System",
+  ReportsCenter: "Reports",
+  AttendanceControl: "Attendance Control",
+  WorkerAttendance: "Attendance"
+};
+
+const AppChrome = ({ role }) => {
+  const route = useRoute();
+  const subtitle = role === "admin" ? "Admin Panel" : "Operator Console";
+  const title = TITLE_MAP[route.name] || route.name;
+
+  return (
+    <>
+      <Header title={title} subtitle={subtitle} />
+      <GlobalBottomNav />
+    </>
+  );
+};
 
 const ScreenContainer = ({
   children,
@@ -11,15 +42,18 @@ const ScreenContainer = ({
   contentContainerStyle,
   style,
   refreshControl,
-  keyboardAware = false
+  keyboardAware = false,
+  showChrome
 }) => {
   const theme = useTheme();
+  const { user, profile } = useAuthStore();
+  const chromeVisible = showChrome ?? Boolean(user);
   const shouldAvoidKeyboard = keyboardAware || scroll;
   const Wrapper = shouldAvoidKeyboard ? KeyboardAvoidingView : View;
   const wrapperProps = shouldAvoidKeyboard ? { behavior: Platform.OS === "ios" ? "padding" : undefined } : {};
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+    <SafeAreaView style={styles.safeArea} edges={chromeVisible ? ["left", "right"] : ["top", "left", "right"]}>
       <Wrapper style={[styles.root, { backgroundColor: theme.colors.background }, style]} {...wrapperProps}>
       <LinearGradient
         pointerEvents="none"
@@ -30,6 +64,7 @@ const ScreenContainer = ({
             : ["#F8FAFC", "#EEF5FF", "#E2ECFF"]
         }
       />
+      {chromeVisible ? <AppChrome role={profile?.role} /> : null}
       <Animated.View entering={FadeInDown.duration(280)} style={styles.inner}>
         {scroll ? (
           <ScrollView

@@ -13,6 +13,10 @@ export const COLLECTIONS = {
   SALARY_SETTLEMENTS: "salarySettlements",
   SALARY_RECORDS: "salary_records",
   REPORTS: "reports",
+  OPERATOR_MONTHLY_STATS: "operatorMonthlyStats",
+  OPERATOR_YEARLY_STATS: "operatorYearlyStats",
+  MACHINE_MONTHLY_STATS: "machineMonthlyStats",
+  MACHINE_YEARLY_STATS: "machineYearlyStats",
   SETTINGS: "settings",
   AUDIT_LOGS: "auditLogs"
 };

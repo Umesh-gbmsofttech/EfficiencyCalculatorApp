@@ -1,11 +1,11 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useTheme } from "react-native-paper";
+import { Button, Dialog, Portal, useTheme } from "react-native-paper";
 import useAuthStore from "../../store/authStore";
 import { mapErrorMessage } from "../../utils/errorMapper";
-import { formatDateTime, formatPercent } from "../../utils/formatters";
+import { formatDateTime, formatPercent, formatTimeOnly } from "../../utils/formatters";
 import useUIStore from "../../store/uiStore";
 import AnimatedInput from "../../components/AnimatedInput";
 import GlassCard from "../../components/GlassCard";
@@ -13,6 +13,7 @@ import RemoteImage from "../../components/RemoteImage";
 import ScreenContainer from "../../components/ScreenContainer";
 import EmptyState from "../../components/EmptyState";
 import logRepository from "../../repositories/logRepository";
+import { exportReportsPdf } from "../../utils/pdfExport";
 
 const WorkerReportsScreen = () => {
   const { user, profile } = useAuthStore();
@@ -23,6 +24,7 @@ const WorkerReportsScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [reports, setReports] = useState([]);
+  const [selectedReport, setSelectedReport] = useState(null);
 
   const role = profile?.role || null;
 
@@ -85,7 +87,7 @@ const WorkerReportsScreen = () => {
       <ScreenContainer>
         <AnimatedInput label="Search by machine" value={search} onChangeText={setSearch} style={styles.search} />
         <View style={styles.centerWrap}>
-          <EmptyState text="No logs yet" />
+          <EmptyState text="No reports yet" />
         </View>
       </ScreenContainer>
     );
@@ -96,10 +98,29 @@ const WorkerReportsScreen = () => {
       <FlatList
         data={visibleReports}
         keyExtractor={(item) => item.id}
-        ListHeaderComponent={<AnimatedInput label="Search by machine" value={search} onChangeText={setSearch} style={styles.search} />}
+        ListHeaderComponent={
+          <>
+            <AnimatedInput label="Search by machine" value={search} onChangeText={setSearch} style={styles.search} />
+            <Button
+              mode="contained-tonal"
+              icon="file-pdf-box"
+              style={styles.exportBtn}
+              onPress={async () => {
+                try {
+                  await exportReportsPdf({ title: "My Efficiency Reports", subtitle: profile?.fullName || "Operator", reports: visibleReports });
+                } catch (error) {
+                  showSnackbar(mapErrorMessage(error), "error");
+                }
+              }}
+            >
+              Export PDF
+            </Button>
+          </>
+        }
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchReports(true)} />}
         contentContainerStyle={[styles.list, { paddingBottom: listBottomPadding }]}
         renderItem={({ item }) => (
+          <Pressable onPress={() => setSelectedReport(item)}>
           <GlassCard>
             <View style={styles.row}>
               <RemoteImage uri={item.machineImageUrl} fallbackSource={MACHINE_PLACEHOLDER} style={styles.thumb} />
@@ -109,19 +130,46 @@ const WorkerReportsScreen = () => {
                 </Text>
               </View>
             </View>
-            <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Hours: {item.workingHours} | Output: {item.outputProduced}</Text>
+            <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Job: {formatTimeOnly(item.jobStartTime)} - {formatTimeOnly(item.jobEndTime)} | Output: {item.outputProduced}</Text>
             <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Downtime: {item.downtime} | Expected: {item.expectedOutput}</Text>
             <Text style={[styles.efficiency, { color: theme.colors.primary }]}>Efficiency: {formatPercent(item.efficiency)}</Text>
             <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>{formatDateTime(item.timestamp)}</Text>
           </GlassCard>
+          </Pressable>
         )}
       />
+      <Portal>
+        <Dialog visible={Boolean(selectedReport)} onDismiss={() => setSelectedReport(null)} style={styles.dialog}>
+          <Dialog.Title>Report Details</Dialog.Title>
+          <Dialog.Content>
+            {selectedReport ? (
+              <View>
+                <Text style={[styles.title, { color: theme.colors.onSurface }]}>{selectedReport.machineName || "Machine"}</Text>
+                <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Date: {formatDateTime(selectedReport.timestamp)}</Text>
+                <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Job: {selectedReport.jobName || "-"}</Text>
+                <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Start: {formatTimeOnly(selectedReport.jobStartTime)} | End: {formatTimeOnly(selectedReport.jobEndTime)}</Text>
+                <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Runtime: {selectedReport.runtimeMinutes || 0} min</Text>
+                <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Output: {selectedReport.outputProduced || selectedReport.actualProduction || 0}</Text>
+                <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Expected: {selectedReport.expectedProduction || selectedReport.expectedOutput || 0}</Text>
+                <Text style={[styles.efficiency, { color: theme.colors.primary }]}>Efficiency: {formatPercent(selectedReport.efficiency)}</Text>
+              </View>
+            ) : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setSelectedReport(null)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </ScreenContainer>
   );
 };
 
 const styles = StyleSheet.create({
   search: {
+    marginBottom: 10
+  },
+  exportBtn: {
+    borderRadius: 10,
     marginBottom: 10
   },
   list: {
@@ -164,6 +212,9 @@ const styles = StyleSheet.create({
   restrictedText: {
     fontSize: 15,
     fontWeight: "500"
+  },
+  dialog: {
+    borderRadius: 14
   }
 });
 

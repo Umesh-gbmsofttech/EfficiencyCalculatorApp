@@ -1,4 +1,4 @@
-export const WORKER_TABS = ["Dashboard", "Logs", "Attendance", "Profile"];
+export const WORKER_TABS = ["Dashboard", "Reports", "Attendance", "Profile"];
 
 export const ADMIN_STACK_ROUTES = {
   HOME: "AdminHomeTabs",

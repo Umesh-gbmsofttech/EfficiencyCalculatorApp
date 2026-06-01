@@ -73,7 +73,7 @@ export const calculateMonthlySalary = async ({ userId, year, month }) => {
       ),
       getDocs(
         query(
-          collection(db, COLLECTIONS.LOGS),
+          collection(db, COLLECTIONS.REPORTS),
           where("userId", "==", userId),
           where("timestamp", ">=", from),
           where("timestamp", "<=", to)
@@ -85,7 +85,7 @@ export const calculateMonthlySalary = async ({ userId, year, month }) => {
     if (!canFallback) throw error;
     [attendanceSnap, logsSnap] = await Promise.all([
       getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), where("userId", "==", userId), limit(1000))),
-      getDocs(query(collection(db, COLLECTIONS.LOGS), where("userId", "==", userId), limit(2000)))
+      getDocs(query(collection(db, COLLECTIONS.REPORTS), where("userId", "==", userId), limit(2000)))
     ]);
   }
 
@@ -148,7 +148,7 @@ export const calculateSalaryRecord = async ({ userId, baseSalary = 0, perPartRat
   const to = Timestamp.fromDate(lastDay(y, m));
   const [attendanceSnap, logsSnap] = await Promise.all([
     getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), where("userId", "==", userId), where("loginTime", ">=", from), where("loginTime", "<=", to))),
-    getDocs(query(collection(db, COLLECTIONS.LOGS), where("userId", "==", userId), where("timestamp", ">=", from), where("timestamp", "<=", to)))
+    getDocs(query(collection(db, COLLECTIONS.REPORTS), where("userId", "==", userId), where("timestamp", ">=", from), where("timestamp", "<=", to)))
   ]);
   const attendance = attendanceSnap.docs.map((d) => d.data());
   const logs = logsSnap.docs.map((d) => d.data());

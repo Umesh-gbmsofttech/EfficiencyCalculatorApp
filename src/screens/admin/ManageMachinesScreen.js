@@ -19,21 +19,21 @@ import useAuthStore from "../../store/authStore";
 
 const ManageMachinesScreen = () => {
   const { user } = useAuthStore();
-  const [machines, setMachines] = useState([]);
-  const [search, setSearch] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [parts, setParts] = useState([]);
-  const [newPart, setNewPart] = useState({ partName: "", operationCode: "" });
-  const [newPartsDraft, setNewPartsDraft] = useState([]);
+  const [ machines, setMachines ] = useState([]);
+  const [ search, setSearch ] = useState("");
+  const [ refreshing, setRefreshing ] = useState(false);
+  const [ visible, setVisible ] = useState(false);
+  const [ editing, setEditing ] = useState(null);
+  const [ saving, setSaving ] = useState(false);
+  const [ parts, setParts ] = useState([]);
+  const [ newPart, setNewPart ] = useState({ partName: "", operationCode: "" });
+  const [ newPartsDraft, setNewPartsDraft ] = useState([]);
   const { showSnackbar } = useUIStore();
   const theme = useTheme();
 
   const { control, reset, handleSubmit, watch, setValue, formState: { errors } } = useForm({
     resolver: yupResolver(machineSchema),
-    defaultValues: { name: "", code: "", expectedOutputPerHour: "", imageUrl: "", partIds: [] }
+    defaultValues: { name: "", code: "", cycleTimeMinutes: "", imageUrl: "", partIds: [] }
   });
   const selectedImageUrl = watch("imageUrl");
   const selectedPartIds = watch("partIds") || [];
@@ -42,17 +42,17 @@ const ManageMachinesScreen = () => {
 
   const loadMachines = useCallback(async () => {
     try {
-      const [response, partList] = await Promise.all([machineService.list(), partService.list()]);
+      const [ response, partList ] = await Promise.all([ machineService.list(), partService.list() ]);
       setMachines(response);
       setParts(partList);
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
     }
-  }, [showSnackbar]);
+  }, [ showSnackbar ]);
 
   useEffect(() => {
     loadMachines();
-  }, [loadMachines]);
+  }, [ loadMachines ]);
 
   const filtered = useMemo(
     () =>
@@ -61,7 +61,7 @@ const ManageMachinesScreen = () => {
           machine.name.toLowerCase().includes(search.toLowerCase()) ||
           machine.code.toLowerCase().includes(search.toLowerCase())
       ),
-    [machines, search]
+    [ machines, search ]
   );
 
   const onSave = async (values) => {
@@ -79,7 +79,7 @@ const ManageMachinesScreen = () => {
       }
       const payload = {
         ...values,
-        partIds: Array.from(new Set([...(values.partIds || []), ...createdPartIds])),
+        partIds: Array.from(new Set([ ...(values.partIds || []), ...createdPartIds ])),
         imageUrl: normalizeImageUrl(values.imageUrl),
         actorUid: user?.uid || ""
       };
@@ -98,7 +98,7 @@ const ManageMachinesScreen = () => {
       setEditing(null);
       setNewPart({ partName: "", operationCode: "" });
       setNewPartsDraft([]);
-      reset({ name: "", code: "", expectedOutputPerHour: "", imageUrl: "", partIds: [] });
+      reset({ name: "", code: "", cycleTimeMinutes: "", imageUrl: "", partIds: [] });
       await loadMachines();
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
@@ -119,131 +119,179 @@ const ManageMachinesScreen = () => {
 
   return (
     <ScreenContainer>
-      <AnimatedInput label="Search machine" value={search} onChangeText={setSearch} style={styles.search} />
+      <AnimatedInput label="Search machine" value={ search } onChangeText={ setSearch } style={ styles.search } />
 
       <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        ListEmptyComponent={<EmptyState text="No machines found." />}
-        contentContainerStyle={styles.list}
+        data={ filtered }
+        keyExtractor={ (item) => item.id }
+        ListEmptyComponent={ <EmptyState text="No machines found." /> }
+        contentContainerStyle={ styles.list }
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
-            onRefresh={async () => {
+            refreshing={ refreshing }
+            onRefresh={ async () => {
               setRefreshing(true);
               await loadMachines();
               setRefreshing(false);
-            }}
+            } }
           />
         }
-        renderItem={({ item }) => (
+        renderItem={ ({ item }) => (
           <GlassCard>
-            <View style={styles.row}>
-              <RemoteImage uri={item.imageUrl} fallbackSource={MACHINE_PLACEHOLDER} style={styles.thumb} />
-              <View style={styles.rowContent}>
-                <Text style={[styles.name, { color: theme.colors.onSurface }]}>{item.name}</Text>
-                <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>Code: {item.code}</Text>
+            <View style={ styles.row }>
+              <RemoteImage uri={ item.imageUrl } fallbackSource={ MACHINE_PLACEHOLDER } style={ styles.thumb } />
+              <View style={ styles.rowContent }>
+                <Text style={ [ styles.name, { color: theme.colors.onSurface } ] }>{ item.name }</Text>
+                <Text style={ [ styles.meta, { color: theme.custom.colors.textMuted } ] }>Code: { item.code }</Text>
               </View>
             </View>
-            <Text style={[styles.meta, { color: theme.custom.colors.textMuted }]}>
-              Expected/hour: {item.expectedOutputPerHour}
+            <Text style={ [ styles.meta, { color: theme.custom.colors.textMuted } ] }>
+              Cycle time: { item.cycleTimeMinutes } min
             </Text>
-            <View style={styles.actions}>
+            <View style={ styles.actions }>
               <Button
                 mode="contained-tonal"
-                style={styles.actionBtn}
-                onPress={() => {
+                style={ styles.actionBtn }
+                onPress={ () => {
                   setEditing(item);
                   setNewPart({ partName: "", operationCode: "" });
                   setNewPartsDraft([]);
                   reset({
                     name: item.name,
                     code: item.code,
-                    expectedOutputPerHour: String(item.expectedOutputPerHour),
+                    cycleTimeMinutes: String(item.cycleTimeMinutes || ""),
                     imageUrl: normalizeImageUrl(item.imageUrl || ""),
-                    partIds: Array.isArray(item.partIds) ? item.partIds : item.partId ? [item.partId] : []
+                    partIds: Array.isArray(item.partIds) ? item.partIds : item.partId ? [ item.partId ] : []
                   });
                   setVisible(true);
-                }}
+                } }
               >
                 Edit
               </Button>
-              <Button textColor={theme.custom.colors.error} style={styles.actionBtn} onPress={() => onDelete(item.id)}>
+              <Button textColor={ theme.custom.colors.error } style={ styles.actionBtn } onPress={ () => onDelete(item.id) }>
                 Delete
               </Button>
             </View>
           </GlassCard>
-        )}
+        ) }
       />
 
       <Portal>
-        <Dialog visible={visible} onDismiss={() => setVisible(false)} style={{ borderRadius: 14 }}>
-          <Dialog.Title>{editing ? "Edit Machine" : "Add Machine"}</Dialog.Title>
+        <Dialog visible={ visible } onDismiss={ () => setVisible(false) } style={ { borderRadius: 14 } }>
+          <Dialog.Title>{ editing ? "Edit Machine" : "Add Machine" }</Dialog.Title>
           <Dialog.Content>
             <ScrollView
-              style={styles.formScroll}
-              contentContainerStyle={styles.formContent}
+              style={ styles.formScroll }
+              contentContainerStyle={ styles.formContent }
               keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
+              showsVerticalScrollIndicator={ false }
             >
-              <FormTextField control={control} name="name" label="Machine Name" autoCapitalize="words" />
-              <FormTextField control={control} name="code" label="Machine Code" autoCapitalize="characters" />
-              <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>Add New Parts (Admin)</Text>
+              <FormTextField control={ control } name="imageUrl" label="Machine Image URL" keyboardType="url" />
+              <View style={ styles.urlActions }>
+                <Button
+                  compact
+                  mode="text"
+                  onPress={ () => setValue("imageUrl", normalizeImageUrl(selectedImageUrl), { shouldValidate: true }) }
+                >
+                  Normalize URL
+                </Button>
+                <Button compact mode="text" textColor={ theme.custom.colors.error } onPress={ () => setValue("imageUrl", "", { shouldValidate: true }) }>
+                  Clear
+                </Button>
+              </View>
+              <View style={ styles.previewRow }>
+                <View style={ [ styles.previewWrap, { backgroundColor: theme.colors.surface } ] }>
+                  <RemoteImage uri={ previewImageUrl } fallbackSource={ MACHINE_PLACEHOLDER } style={ styles.previewImage } />
+                </View>
+                <View style={ styles.previewTextWrap }>
+                  <Text style={ [ styles.previewLabel, { color: theme.colors.onSurface } ] }>Live preview</Text>
+                  <Text style={ [ styles.previewHint, { color: theme.custom.colors.textMuted } ] }>
+                    Public URL only (Google Drive links are auto-converted)
+                  </Text>
+                  { isEditing ? (
+                    <Text style={ [ styles.previewHint, { color: theme.colors.primary } ] }>Editing machine: { editing?.code }</Text>
+                  ) : null }
+                </View>
+              </View>
+              <FormTextField control={ control } name="name" label="Machine Name" autoCapitalize="words" />
+              <FormTextField control={ control } name="code" label="Machine Code" autoCapitalize="characters" />
+              <Text style={ [ styles.sectionTitle, { color: theme.colors.onSurface } ] }>Add New Parts (Admin)</Text>
               <AnimatedInput
                 label="Part Name"
-                value={newPart.partName}
-                onChangeText={(value) => setNewPart((prev) => ({ ...prev, partName: value }))}
-                style={styles.partSearch}
+                value={ newPart.partName }
+                onChangeText={ (value) => setNewPart((prev) => ({ ...prev, partName: value })) }
+                style={ styles.partSearch }
               />
               <AnimatedInput
                 label="Operation Code (optional)"
-                value={newPart.operationCode}
-                onChangeText={(value) => setNewPart((prev) => ({ ...prev, operationCode: value }))}
-                style={styles.partSearch}
+                value={ newPart.operationCode }
+                onChangeText={ (value) => setNewPart((prev) => ({ ...prev, operationCode: value })) }
+                style={ styles.partSearch }
               />
               <Button
                 mode="contained-tonal"
-                style={styles.partBtn}
-                onPress={() => {
+                style={ styles.partBtn }
+                onPress={ () => {
                   const partName = String(newPart.partName || "").trim();
                   const operationCode = String(newPart.operationCode || "").trim();
                   if (!partName) {
                     showSnackbar("Part name is required to add part.", "warning");
                     return;
                   }
-                  setNewPartsDraft((prev) => [...prev, { id: `${Date.now()}_${prev.length}`, partName, operationCode }]);
+                  setNewPartsDraft((prev) => [ ...prev, { id: `${Date.now()}_${prev.length}`, partName, operationCode } ]);
                   setNewPart({ partName: "", operationCode: "" });
-                }}
+                } }
               >
                 Add Part To Machine
               </Button>
-              {newPartsDraft.length ? (
-                <View style={styles.chipsWrap}>
-                  {newPartsDraft.map((part) => (
+              { newPartsDraft.length ? (
+                <View style={ styles.chipsWrap }>
+                  { newPartsDraft.map((part) => (
                     <Button
-                      key={part.id}
+                      key={ part.id }
                       compact
                       mode="outlined"
-                      onPress={() => setNewPartsDraft((prev) => prev.filter((item) => item.id !== part.id))}
+                      onPress={ () => setNewPartsDraft((prev) => prev.filter((item) => item.id !== part.id)) }
                     >
-                      {part.partName} x
+                      { part.partName } x
                     </Button>
-                  ))}
+                  )) }
                 </View>
-              ) : null}
-              {errors.partIds?.message ? (
-                <Text style={[styles.errorText, { color: theme.custom.colors.error }]}>{errors.partIds.message}</Text>
-              ) : null}
-              {selectedPartIds.length ? (
-                <View style={styles.chipsWrap}>
-                  {parts
+              ) : null }
+              { errors.partIds?.message ? (
+                <Text style={ [ styles.errorText, { color: theme.custom.colors.error } ] }>{ errors.partIds.message }</Text>
+              ) : null }
+              <Text style={ [ styles.sectionTitle, { color: theme.colors.onSurface } ] }>Select Existing Parts</Text>
+              <View style={ styles.chipsWrap }>
+                { parts.map((part) => {
+                  const selected = selectedPartIds.includes(part.id);
+                  return (
+                    <Button
+                      key={ part.id }
+                      compact
+                      mode={ selected ? "contained-tonal" : "outlined" }
+                      onPress={ () => {
+                        const next = selected
+                          ? selectedPartIds.filter((id) => id !== part.id)
+                          : [ ...selectedPartIds, part.id ];
+                        setValue("partIds", next, { shouldValidate: true, shouldDirty: true });
+                      } }
+                    >
+                      { part.partName }
+                    </Button>
+                  );
+                }) }
+              </View>
+              { selectedPartIds.length ? (
+                <View style={ styles.chipsWrap }>
+                  { parts
                     .filter((part) => selectedPartIds.includes(part.id))
                     .map((part) => (
                       <Button
-                        key={part.id}
+                        key={ part.id }
                         compact
                         mode="outlined"
-                        onPress={() =>
+                        onPress={ () =>
                           setValue(
                             "partIds",
                             selectedPartIds.filter((id) => id !== part.id),
@@ -251,58 +299,31 @@ const ManageMachinesScreen = () => {
                           )
                         }
                       >
-                        {part.partName} x
+                        { part.partName } x
                       </Button>
-                    ))}
+                    )) }
                 </View>
-              ) : null}
-              <FormTextField control={control} name="imageUrl" label="Machine Image URL" keyboardType="url" />
-              <View style={styles.urlActions}>
-                <Button
-                  compact
-                  mode="text"
-                  onPress={() => setValue("imageUrl", normalizeImageUrl(selectedImageUrl), { shouldValidate: true })}
-                >
-                  Normalize URL
-                </Button>
-                <Button compact mode="text" textColor={theme.custom.colors.error} onPress={() => setValue("imageUrl", "", { shouldValidate: true })}>
-                  Clear
-                </Button>
-              </View>
-              <View style={styles.previewRow}>
-                <View style={[styles.previewWrap, { backgroundColor: theme.colors.surface }]}>
-                  <RemoteImage uri={previewImageUrl} fallbackSource={MACHINE_PLACEHOLDER} style={styles.previewImage} />
-                </View>
-                <View style={styles.previewTextWrap}>
-                  <Text style={[styles.previewLabel, { color: theme.colors.onSurface }]}>Live preview</Text>
-                  <Text style={[styles.previewHint, { color: theme.custom.colors.textMuted }]}>
-                    Public URL only (Google Drive links are auto-converted)
-                  </Text>
-                  {isEditing ? (
-                    <Text style={[styles.previewHint, { color: theme.colors.primary }]}>Editing machine: {editing?.code}</Text>
-                  ) : null}
-                </View>
-              </View>
+              ) : null }
               <FormTextField
-                control={control}
-                name="expectedOutputPerHour"
-                label="Expected Output/Hour"
+                control={ control }
+                name="cycleTimeMinutes"
+                label="Cycle Time (Minutes)"
                 keyboardType="numeric"
               />
             </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
             <Button
-              onPress={() => {
+              onPress={ () => {
                 setVisible(false);
                 setNewPart({ partName: "", operationCode: "" });
                 setNewPartsDraft([]);
-              }}
+              } }
             >
               Cancel
             </Button>
-            <Button onPress={handleSubmit(onSave)} loading={saving} disabled={saving}>
-              {isEditing ? "Update" : "Save"}
+            <Button onPress={ handleSubmit(onSave) } loading={ saving } disabled={ saving }>
+              { isEditing ? "Update" : "Save" }
             </Button>
           </Dialog.Actions>
         </Dialog>
@@ -310,15 +331,15 @@ const ManageMachinesScreen = () => {
 
       <FAB
         icon="plus"
-        style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+        style={ [ styles.fab, { backgroundColor: theme.colors.primary } ] }
         color="#FFFFFF"
-        onPress={() => {
+        onPress={ () => {
           setEditing(null);
-          reset({ name: "", code: "", expectedOutputPerHour: "", imageUrl: "", partIds: [] });
+          reset({ name: "", code: "", cycleTimeMinutes: "", imageUrl: "", partIds: [] });
           setNewPart({ partName: "", operationCode: "" });
           setNewPartsDraft([]);
           setVisible(true);
-        }}
+        } }
       />
     </ScreenContainer>
   );

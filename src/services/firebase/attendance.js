@@ -157,10 +157,21 @@ export const getAttendanceForUserShift = async ({ userId, shiftDate }) => {
 
 export const getAttendanceRecords = async ({ role, userId, from, to }) => {
   const constraints = [];
-  if (!hasAccess(role, ["admin"])) constraints.push(where("userId", "==", userId));
-  if (from) constraints.push(where("shiftDate", ">=", from));
-  if (to) constraints.push(where("shiftDate", "<=", to));
-  constraints.push(orderBy("shiftDate", "desc"), limit(400));
+  const adminScope = hasAccess(role, ["admin"]);
+  let effectiveFrom = from;
+  let effectiveTo = to;
+  if (!adminScope && !effectiveFrom) {
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+    effectiveFrom = formatYmd(twoMonthsAgo);
+  }
+  if (!adminScope && !effectiveTo) {
+    effectiveTo = formatYmd(new Date());
+  }
+  if (!adminScope) constraints.push(where("userId", "==", userId));
+  if (effectiveFrom) constraints.push(where("shiftDate", ">=", effectiveFrom));
+  if (effectiveTo) constraints.push(where("shiftDate", "<=", effectiveTo));
+  constraints.push(orderBy("shiftDate", "desc"), limit(adminScope ? 400 : 90));
   try {
     const snap = await getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), ...constraints));
     return snap.docs
@@ -174,10 +185,10 @@ export const getAttendanceRecords = async ({ role, userId, from, to }) => {
     const canFallback = error?.code === "failed-precondition" || String(error?.message || "").toLowerCase().includes("index");
     if (!canFallback) throw error;
     const fallback = [];
-    if (!hasAccess(role, ["admin"])) fallback.push(where("userId", "==", userId));
-    if (from) fallback.push(where("shiftDate", ">=", from));
-    if (to) fallback.push(where("shiftDate", "<=", to));
-    fallback.push(limit(400));
+    if (!adminScope) fallback.push(where("userId", "==", userId));
+    if (effectiveFrom) fallback.push(where("shiftDate", ">=", effectiveFrom));
+    if (effectiveTo) fallback.push(where("shiftDate", "<=", effectiveTo));
+    fallback.push(limit(adminScope ? 400 : 90));
     const snap = await getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), ...fallback));
     return snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
@@ -190,10 +201,13 @@ export const getAttendanceRecords = async ({ role, userId, from, to }) => {
 };
 
 export const getRecentAttendance = async ({ userId, max = 5 }) => {
+  const twoMonthsAgo = new Date();
+  twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
   try {
     const q = query(
       collection(db, COLLECTIONS.ATTENDANCE),
       where("userId", "==", userId),
+      where("loginTime", ">=", Timestamp.fromDate(twoMonthsAgo)),
       orderBy("loginTime", "desc"),
       limit(max)
     );
@@ -215,12 +229,24 @@ export const getRecentAttendance = async ({ userId, max = 5 }) => {
   }
 };
 
-export const getTodayAttendanceRecords = async ({ role } = {}) => {
+export const getTodayAttendanceRecords = async () => {
   const shiftDate = getShiftDate(new Date());
   const constraints = [where("shiftDate", "==", shiftDate), orderBy("loginTime", "desc"), limit(200)];
-  if (role) constraints.unshift(where("role", "==", role));
-  const snap = await getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), ...constraints));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  try {
+    const snap = await getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), ...constraints));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    const canFallback = error?.code === "failed-precondition" || String(error?.message || "").toLowerCase().includes("index");
+    if (!canFallback) throw error;
+    const snap = await getDocs(query(collection(db, COLLECTIONS.ATTENDANCE), where("shiftDate", "==", shiftDate), limit(200)));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const aTime = a.loginTime?.toDate?.()?.getTime?.() || 0;
+        const bTime = b.loginTime?.toDate?.()?.getTime?.() || 0;
+        return bTime - aTime;
+      });
+  }
 };
 
 export const updateAttendanceRecord = async (id, patch = {}) => {

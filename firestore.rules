@@ -6,32 +6,126 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function role() {
+      return isSignedIn() && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role
+        : null;
+    }
+
     function isAdmin() {
-      return isSignedIn() &&
-        get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == "admin";
+      return role() == "admin";
     }
+
     function isOperator() {
-      return isSignedIn() &&
-        get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == "operator";
+      return role() == "operator";
     }
+
     function isStaff() {
-      return isSignedIn() &&
-        get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == "staff";
+      return role() == "staff";
+    }
+
+    function ownsUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function validNumber(field) {
+      return field is number && field >= 0;
+    }
+
+    function validMachinePayload() {
+      return request.resource.data.machineName is string &&
+        request.resource.data.machineCode is string &&
+        request.resource.data.cycleTimeMinutes is number &&
+        request.resource.data.cycleTimeMinutes > 0 &&
+        request.resource.data.active is bool;
+    }
+
+    function validReportPayload() {
+      return request.resource.data.userId == request.auth.uid &&
+        request.resource.data.machineId is string &&
+        request.resource.data.jobId is string &&
+        request.resource.data.jobStartTime is timestamp &&
+        request.resource.data.jobEndTime is timestamp &&
+        request.resource.data.cycleTimeMinutes is number &&
+        request.resource.data.cycleTimeMinutes > 0 &&
+        validNumber(request.resource.data.runtimeMinutes) &&
+        validNumber(request.resource.data.downtimeMinutes) &&
+        validNumber(request.resource.data.expectedProduction) &&
+        validNumber(request.resource.data.actualProduction) &&
+        validNumber(request.resource.data.efficiency) &&
+        request.resource.data.shiftDate is string &&
+        request.resource.data.month is string &&
+        request.resource.data.year is int &&
+        request.resource.data.timestamp is timestamp;
+    }
+
+    function validOperatorStatsPayload() {
+      return request.resource.data.operatorId is string &&
+        request.resource.data.month is string &&
+        request.resource.data.year is int &&
+        validNumber(request.resource.data.totalProduction) &&
+        validNumber(request.resource.data.totalRuntimeMinutes) &&
+        validNumber(request.resource.data.totalDowntimeMinutes) &&
+        validNumber(request.resource.data.expectedProduction) &&
+        validNumber(request.resource.data.actualProduction) &&
+        validNumber(request.resource.data.efficiency) &&
+        validNumber(request.resource.data.machineCount) &&
+        validNumber(request.resource.data.reportCount);
+    }
+
+    function validOperatorYearlyStatsPayload() {
+      return request.resource.data.operatorId is string &&
+        request.resource.data.year is int &&
+        validNumber(request.resource.data.totalProduction) &&
+        validNumber(request.resource.data.totalRuntimeMinutes) &&
+        validNumber(request.resource.data.totalDowntimeMinutes) &&
+        validNumber(request.resource.data.expectedProduction) &&
+        validNumber(request.resource.data.actualProduction) &&
+        validNumber(request.resource.data.efficiency) &&
+        validNumber(request.resource.data.machineCount) &&
+        validNumber(request.resource.data.reportCount);
+    }
+
+    function validMachineStatsPayload() {
+      return request.resource.data.machineId is string &&
+        request.resource.data.month is string &&
+        request.resource.data.year is int &&
+        validNumber(request.resource.data.totalProduction) &&
+        validNumber(request.resource.data.runtimeMinutes) &&
+        validNumber(request.resource.data.downtimeMinutes) &&
+        validNumber(request.resource.data.expectedProduction) &&
+        validNumber(request.resource.data.actualProduction) &&
+        validNumber(request.resource.data.efficiency) &&
+        validNumber(request.resource.data.operatorCount) &&
+        validNumber(request.resource.data.reportCount);
+    }
+
+    function validMachineYearlyStatsPayload() {
+      return request.resource.data.machineId is string &&
+        request.resource.data.year is int &&
+        validNumber(request.resource.data.totalProduction) &&
+        validNumber(request.resource.data.runtimeMinutes) &&
+        validNumber(request.resource.data.downtimeMinutes) &&
+        validNumber(request.resource.data.expectedProduction) &&
+        validNumber(request.resource.data.actualProduction) &&
+        validNumber(request.resource.data.efficiency) &&
+        validNumber(request.resource.data.operatorCount) &&
+        validNumber(request.resource.data.reportCount);
     }
 
     match /users/{userId} {
-      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
-      allow create, update, delete: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow read: if isAdmin() || ownsUser(userId);
+      allow create: if isAdmin() || ownsUser(userId);
+      allow update: if isAdmin() || (ownsUser(userId) && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
     }
 
     match /roles/{userId} {
       allow read: if isSignedIn();
-      allow create: if isAdmin() || (isSignedIn() &&
-        request.auth.uid == userId &&
+      allow create: if isAdmin() || (ownsUser(userId) &&
         request.resource.data.uid == request.auth.uid &&
         request.resource.data.role in ["operator", "staff"]);
-      allow update: if isAdmin() || (isSignedIn() &&
-        request.auth.uid == userId &&
+      allow update: if isAdmin() || (ownsUser(userId) &&
         request.resource.data.uid == request.auth.uid &&
         request.resource.data.role == resource.data.role);
       allow delete: if isAdmin();
@@ -39,26 +133,52 @@ service cloud.firestore {
 
     match /machines/{machineId} {
       allow read: if isSignedIn();
+      allow create, update: if isAdmin() && validMachinePayload();
+      allow delete: if isAdmin();
+    }
+
+    match /parts/{partId} {
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
+
     match /parts_master/{partId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
+    match /jobs/{jobId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isOperator() && validReportPayload();
+      allow update: if isAdmin() || (isOperator() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid &&
+        validReportPayload());
+      allow delete: if isAdmin();
+    }
+
     match /logs/{logId} {
-      allow read, update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isAdmin() || (isOperator() && request.resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create, update: if false;
+      allow delete: if isAdmin();
     }
 
     match /attendance/{attendanceId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow create: if isAdmin() || ((isOperator() || isStaff()) && request.resource.data.userId == request.auth.uid);
-      allow update, delete: if isAdmin() || ((isOperator() || isStaff()) && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || ((isOperator() || isStaff()) &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
     }
 
     match /salaryConfigs/{userId} {
-      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow read: if isAdmin() || ownsUser(userId);
       allow write: if isAdmin();
     }
 
@@ -66,8 +186,54 @@ service cloud.firestore {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow write: if isAdmin();
     }
+
     match /salary_records/{recordId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /salaryRecords/{recordId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /salaries/{recordId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /operatorMonthlyStats/{statId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.operatorId == request.auth.uid);
+      allow create, update: if (isAdmin() || (isOperator() && request.resource.data.operatorId == request.auth.uid)) &&
+        validOperatorStatsPayload();
+      allow delete: if isAdmin();
+    }
+
+    match /operatorYearlyStats/{statId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.operatorId == request.auth.uid);
+      allow create, update: if (isAdmin() || (isOperator() && request.resource.data.operatorId == request.auth.uid)) &&
+        validOperatorYearlyStatsPayload();
+      allow delete: if isAdmin();
+    }
+
+    match /machineMonthlyStats/{statId} {
+      allow read: if isAdmin();
+      allow create, update: if isSignedIn() && validMachineStatsPayload();
+      allow delete: if isAdmin();
+    }
+
+    match /machineYearlyStats/{statId} {
+      allow read: if isAdmin();
+      allow create, update: if isSignedIn() && validMachineYearlyStatsPayload();
+      allow delete: if isAdmin();
+    }
+
+    match /auditLogs/{auditId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
   }

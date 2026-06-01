@@ -21,6 +21,7 @@ const WorkerAttendanceScreen = () => {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [records, setRecords] = useState([]);
+  const [visibleCount, setVisibleCount] = useState(20);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [shiftType, setShiftType] = useState("day");
@@ -42,6 +43,7 @@ const WorkerAttendanceScreen = () => {
         to: range.dateTo
       });
       setRecords(data);
+      setVisibleCount(20);
     } catch (error) {
       showSnackbar(mapErrorMessage(error), "error");
     } finally {
@@ -100,12 +102,13 @@ const WorkerAttendanceScreen = () => {
   };
 
   const marks = useMemo(() => attendanceService.mapDates(records), [records]);
+  const visibleRecords = useMemo(() => records.slice(0, visibleCount), [records, visibleCount]);
   const listBottomPadding = insets.bottom + 104;
 
   return (
     <ScreenContainer>
       <FlatList
-        data={records}
+        data={visibleRecords}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
         contentContainerStyle={[styles.listContent, { paddingBottom: listBottomPadding }]}
@@ -129,6 +132,13 @@ const WorkerAttendanceScreen = () => {
           </View>
         }
         ListEmptyComponent={loading ? <EmptyState text="Loading attendance..." /> : <EmptyState text="No attendance records." />}
+        ListFooterComponent={
+          records.length > visibleCount ? (
+            <Button mode="contained-tonal" style={styles.loadBtn} onPress={() => setVisibleCount((prev) => prev + 20)}>
+              Load More
+            </Button>
+          ) : null
+        }
         renderItem={({ item }) => (
           <GlassCard>
             <Text style={[styles.itemTitle, { color: theme.colors.onSurface }]}>{item.shiftDate} ({item.shiftType})</Text>
@@ -172,6 +182,7 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: 24 },
   title: { fontSize: 16, fontWeight: "600", marginBottom: 8 },
   row: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  loadBtn: { borderRadius: 10, marginTop: 8 },
   itemTitle: { fontSize: 15, fontWeight: "600", marginBottom: 2 },
   meta: { fontSize: 13, marginBottom: 2 },
   dialog: { borderRadius: 14 }
